@@ -1,4 +1,3 @@
-
 import { RiskLabel, Severity, Phenotype } from './types';
 
 export const SUPPORTED_DRUGS = [
@@ -34,6 +33,11 @@ export const CPIC_RULES: Record<string, Record<string, any>> = {
       risk: RiskLabel.INEFFECTIVE,
       severity: Severity.HIGH,
       rec: 'Avoid codeine due to lack of efficacy. Use alternative analgesics.'
+    },
+    [Phenotype.IM]: {
+      risk: RiskLabel.ADJUST,
+      severity: Severity.MODERATE,
+      rec: 'CYP2D6 Intermediate Metabolizer: Consider alternative analgesics if clinical response is inadequate or monitor closely for efficacy.'
     },
     [Phenotype.URM]: {
       risk: RiskLabel.TOXIC,
@@ -157,7 +161,7 @@ export const CPIC_RULES: Record<string, Record<string, any>> = {
     },
     [Phenotype.IM]: {
       risk: RiskLabel.ADJUST,
-      severity: Severity.HIGH,
+      severity: Severity.MODERATE,
       rec: 'Reduce initial dose of fluorouracil by 50% and monitor for toxicity.'
     },
     [Phenotype.NM]: {

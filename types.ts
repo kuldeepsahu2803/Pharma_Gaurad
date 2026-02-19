@@ -36,6 +36,8 @@ export interface VariantRecord extends DetectedVariant {
   ref: string;
   alt: string;
   quality: number;
+  cpic_level?: string;
+  clinical_significance?: string;
 }
 
 export interface PharmacogenomicProfile {

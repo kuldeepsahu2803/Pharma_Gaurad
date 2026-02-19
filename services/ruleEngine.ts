@@ -3,29 +3,29 @@ import { DRUG_GENE_MAP, CPIC_RULES } from '../constants';
 
 const ALTERNATIVE_DRUGS_MAP: Record<string, Record<string, string[]>> = {
   'CODEINE': {
-    [Phenotype.PM]: ['Morphine', 'Hydromorphone', 'Oxycodone'],
-    [Phenotype.IM]: ['Morphine', 'Hydromorphone', 'Oxycodone'],
-    [Phenotype.URM]: ['Morphine', 'Hydromorphone', 'Oxycodone'],
+    [Phenotype.PM]: ['morphine', 'hydromorphone', 'oxycodone'],
+    [Phenotype.IM]: ['morphine', 'hydromorphone', 'oxycodone'],
+    [Phenotype.URM]: ['morphine', 'hydromorphone', 'oxycodone'],
   },
   'CLOPIDOGREL': {
-    [Phenotype.PM]: ['Prasugrel', 'Ticagrelor'],
-    [Phenotype.IM]: ['Prasugrel', 'Ticagrelor'],
+    [Phenotype.PM]: ['prasugrel', 'ticagrelor'],
+    [Phenotype.IM]: ['prasugrel', 'ticagrelor'],
   },
   'WARFARIN': {
-    [Phenotype.PM]: ['Apixaban', 'Rivaroxaban', 'Dabigatran'],
-    [Phenotype.IM]: ['Apixaban', 'Rivaroxaban', 'Dabigatran'],
+    [Phenotype.PM]: ['apixaban', 'rivaroxaban', 'dabigatran'],
+    [Phenotype.IM]: ['apixaban', 'rivaroxaban', 'dabigatran'],
   },
   'SIMVASTATIN': {
-    [Phenotype.PM]: ['Pravastatin', 'Rosuvastatin'],
-    [Phenotype.IM]: ['Pravastatin', 'Rosuvastatin'],
+    [Phenotype.PM]: ['pravastatin', 'rosuvastatin'],
+    [Phenotype.IM]: ['pravastatin', 'rosuvastatin'],
   },
   'FLUOROURACIL': {
-    [Phenotype.PM]: ['Capecitabine (reduced dose)', 'Raltitrexed'],
-    [Phenotype.IM]: ['Capecitabine (reduced dose)', 'Raltitrexed'],
+    [Phenotype.PM]: ['capecitabine (reduced dose)', 'raltitrexed'],
+    [Phenotype.IM]: ['capecitabine (reduced dose)'],
   },
   'AZATHIOPRINE': {
-    [Phenotype.PM]: ['Non-thiopurine immunosuppressants'],
-    [Phenotype.IM]: ['Non-thiopurine immunosuppressants'],
+    [Phenotype.PM]: ['non-thiopurine immunosuppressants'],
+    [Phenotype.IM]: ['non-thiopurine immunosuppressants'],
   }
 };
 

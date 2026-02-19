@@ -1,23 +1,23 @@
-
 import { VariantRecord, QualityMetrics, DetectedVariant } from '../types';
 import { SUPPORTED_GENES } from '../constants';
 
 function extractFromInfo(info: string, key: string): string | null {
-  const match = info.match(new RegExp(`(?:^|;)${key}=([^;]+)`));
+  // Enhanced regex to handle optional spaces and ensure key=value boundary
+  const match = info.match(new RegExp(`(?:^|;|\\s)${key}=([^;\\s]+)`));
   return match ? match[1].split(',')[0].trim() : null;
 }
 
 function extractGeneSymbol(info: string): string | null {
   const direct = extractFromInfo(info, 'GENE') || extractFromInfo(info, 'SYMBOL');
-  if (direct) return direct.toUpperCase();
+  if (direct) return direct.toUpperCase().trim();
 
-  const annMatch = info.match(/(?:^|;)ANN=([^;]+)/i);
+  const annMatch = info.match(/(?:^|;|\\s)ANN=([^;\\s]+)/i);
   if (annMatch) {
     const parts = annMatch[1].split(',')[0].split('|');
     if (parts.length > 3) return parts[3].toUpperCase().trim();
   }
 
-  const csqMatch = info.match(/(?:^|;)CSQ=([^;]+)/i);
+  const csqMatch = info.match(/(?:^|;|\\s)CSQ=([^;\\s]+)/i);
   if (csqMatch) {
     const parts = csqMatch[1].split(',')[0].split('|');
     if (parts.length > 3) return parts[3].toUpperCase().trim();
@@ -28,19 +28,22 @@ function extractGeneSymbol(info: string): string | null {
 
 function parseZygosity(format: string, sample: string): DetectedVariant['zygosity'] {
   if (!format || !sample) return 'unknown';
+  
   const formatParts = format.split(':');
   const sampleParts = sample.split(':');
   const gtIndex = formatParts.indexOf('GT');
   
   if (gtIndex === -1) return 'unknown';
-  const gt = sampleParts[gtIndex].trim();
   
-  if (gt === '0/0' || gt === '0|0') return 'homozygous_ref';
-  if (gt === '1/1' || gt === '1|1' || gt === '2/2' || gt === '2|2') return 'homozygous_alt';
-  if (gt === '0/1' || gt === '0|1' || gt === '1/0' || gt === '1|0' || gt === '1/2' || gt === '1|2') return 'heterozygous';
-  if (gt === '1/.' || gt === './1' || gt === '1|.' || gt === '.|1' || gt === '1') return 'hemizygous';
-  if (gt === '0/.' || gt === './0' || gt === '0|.' || gt === '.|0' || gt === '0') return 'hemizygous_ref';
-  if (gt === './.' || gt === '.|.') return 'unknown';
+  // Extract GT and handle potential formatting variants
+  const rawGt = sampleParts[gtIndex].trim();
+  
+  // Standard VCF GT mapping
+  if (rawGt === '0/0' || rawGt === '0|0') return 'homozygous_ref';
+  if (rawGt === '1/1' || rawGt === '1|1' || rawGt === '2/2' || rawGt === '2|2') return 'homozygous_alt';
+  if (rawGt === '0/1' || rawGt === '0|1' || rawGt === '1/0' || rawGt === '1|0' || rawGt === '0/2' || rawGt === '1/2') return 'heterozygous';
+  if (rawGt === '1/.' || rawGt === './1' || rawGt === '1|.' || rawGt === '.|1' || rawGt === '1') return 'hemizygous';
+  if (rawGt === '0/.' || rawGt === './0' || rawGt === '0|.' || rawGt === '.|0' || rawGt === '0') return 'hemizygous_ref';
   
   return 'unknown';
 }
@@ -56,17 +59,20 @@ function extractDP(format: string, sample: string): number {
 }
 
 export const parseVCF = (content: string): { variants: VariantRecord[], metrics: QualityMetrics } => {
-  const lines = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  // Normalize line endings and split
+  const lines = content.split(/\r?\n/);
   const tempMap = new Map<string, { variant: VariantRecord, dp: number }>();
   const errors: string[] = [];
   let vcf_parsing_success = true;
   const allGeneSymbols = new Set<string>();
 
-  if (lines.length === 0 || !lines[0].trim()) {
+  if (lines.length === 0 || (lines.length === 1 && !lines[0].trim())) {
     return { variants: [], metrics: { vcf_parsing_success: false, variants_detected: 0, genes_analyzed: [], data_completeness_score: 0, errors: ["Empty file."] } };
   }
 
-  if (!lines[0].startsWith('##fileformat=VCFv4.2')) {
+  // Header validation
+  const firstHeader = lines.find(l => l.startsWith('##fileformat=VCF'));
+  if (!firstHeader || !firstHeader.includes('v4.2')) {
     errors.push("Invalid VCF format. System requires VCF v4.2 headers.");
     vcf_parsing_success = false;
   }
@@ -77,17 +83,32 @@ export const parseVCF = (content: string): { variants: VariantRecord[], metrics:
   lines.forEach((line) => {
     if (line.startsWith('#') || !line.trim()) return;
 
+    // Strict split by TAB as per clinical requirements
     const parts = line.split('\t');
     if (parts.length < 10) return;
 
-    const [chrom, pos, id, ref, alt, qualRaw, , info, format, sample] = parts;
+    const chrom = parts[0];
+    const pos = parts[1];
+    const id = parts[2];
+    const ref = parts[3];
+    const alt = parts[4];
+    const qualRaw = parts[5];
+    const info = parts[7];
+    const format = parts[8];
+    const sample = parts[9];
+
     const geneName = extractGeneSymbol(info) || 'Unknown';
     if (geneName !== 'Unknown') allGeneSymbols.add(geneName);
 
-    const rsid = extractFromInfo(info, 'RS') || (id !== '.' ? id : `rs_${pos}_${geneName}`);
+    // Extraction of primary markers
+    const rsid = extractFromInfo(info, 'RS') || (id !== '.' ? id.trim() : `rs_${pos}_${geneName}`);
     const starAllele = extractFromInfo(info, 'STAR') || '*Unknown';
     const zygosity = parseZygosity(format, sample);
     const dp = extractDP(format, sample);
+
+    // Dynamic annotation extraction for pathogenicity checks
+    const cpic = extractFromInfo(info, 'CPIC');
+    const clnsig = extractFromInfo(info, 'CLNSIG');
 
     const rawQual = parseFloat(qualRaw);
     const variantQuality = isNaN(rawQual) ? 0.85 : Math.min(rawQual / 100, 0.99);
@@ -97,7 +118,7 @@ export const parseVCF = (content: string): { variants: VariantRecord[], metrics:
 
     if (SUPPORTED_GENES.includes(geneName)) {
       const existing = tempMap.get(rsid);
-      // Keep entry with highest read depth (DP)
+      // Keep record with highest depth
       if (!existing || dp > existing.dp) {
         tempMap.set(rsid, {
           dp,
@@ -109,8 +130,10 @@ export const parseVCF = (content: string): { variants: VariantRecord[], metrics:
             alt,
             gene: geneName,
             star_allele: starAllele,
-            zygosity: zygosity,
+            zygosity,
             quality: variantQuality,
+            cpic_level: cpic || undefined,
+            clinical_significance: clnsig || undefined
           }
         });
       }

@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { 
@@ -133,13 +132,12 @@ const App: React.FC = () => {
         // Strict Filtering for PS1 Accuracy: 
         // 1. Exclude variants with homozygous reference genotype (GT 0/0)
         // 2. Exclude variants that are non-pathogenic (Benign/CPIC3)
-        // 3. DO NOT include rawLine in DetectedVariant output
         const filteredVariants = variants
           .filter(v => 
             v.gene === primaryGene && 
             v.zygosity !== 'homozygous_ref' && 
             v.zygosity !== 'unknown' &&
-            isPathogenicVariant(v.rsid)
+            isPathogenicVariant(v)
           )
           .map(v => ({ 
             rsid: v.rsid,
