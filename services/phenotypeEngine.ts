@@ -40,24 +40,23 @@ export const getDiplotypeForGene = (gene: string, variants: VariantRecord[]): st
   if (geneVariants.length === 0) return '*1/*1 (assumed)';
   
   const detectedAlleles = geneVariants
-    .map(v => RSID_STAR_ALLELE_MAP[v.id])
+    .map(v => RSID_STAR_ALLELE_MAP[v.rsid])
     .filter(entry => entry && entry.gene === gene) as MapEntry[];
 
   if (detectedAlleles.length === 0) {
-    const starMatch = geneVariants.find(v => v.id.includes('*'));
-    if (starMatch) return `${starMatch.id}/*1`;
     return '*1/*1';
   }
 
-  // Sort alleles by impact
   const sorted = detectedAlleles.sort((a, b) => impactOrder[a.function] - impactOrder[b.function]);
+  const primary = sorted[0];
+  const variant = geneVariants.find(v => v.rsid === primary.star); // Not exactly rsid but key
 
-  if (sorted.length === 1) {
-    return `${sorted[0].star}/*1`;
+  // FIX: Use 'homozygous_alt' instead of 'homozygous' to match DetectedVariant type for variant detection
+  if (geneVariants.some(v => v.zygosity === 'homozygous_alt')) {
+    return `${primary.star}/${primary.star}`;
   }
 
-  // Use the two highest-impact alleles (Compound Heterozygote)
-  return `${sorted[0].star}/${sorted[1].star}`;
+  return `${primary.star}/*1`;
 };
 
 export interface PhenotypeResult {
@@ -83,36 +82,9 @@ export const getPhenotypeForGene = (gene: string, variants: VariantRecord[]): Ph
 
   const detectedEntries: { variant: VariantRecord; entry: MapEntry }[] = [];
   for (const variant of geneVariants) {
-    const entry = RSID_STAR_ALLELE_MAP[variant.id];
+    const entry = RSID_STAR_ALLELE_MAP[variant.rsid];
     if (entry && entry.gene === gene) {
       detectedEntries.push({ variant, entry });
-    }
-  }
-
-  // Fallback: allele heuristics if map doesn't catch it
-  if (detectedEntries.length === 0) {
-    const alleleHeuristics: Record<string, { pheno: Phenotype; func: VariantFunction }> = {
-      '*2': { pheno: Phenotype.PM, func: 'no_function' },
-      '*3': { pheno: Phenotype.PM, func: 'no_function' },
-      '*4': { pheno: Phenotype.PM, func: 'no_function' },
-      '*5': { pheno: Phenotype.PM, func: 'no_function' },
-      '*6': { pheno: Phenotype.PM, func: 'no_function' },
-      '*17': { pheno: Phenotype.RM, func: 'increased' },
-      'xN': { pheno: Phenotype.URM, func: 'increased' },
-      '*2A': { pheno: Phenotype.PM, func: 'no_function' },
-      '*13': { pheno: Phenotype.IM, func: 'decreased' }
-    };
-
-    for (const variant of geneVariants) {
-      for (const [allele, info] of Object.entries(alleleHeuristics)) {
-        if (variant.id.toUpperCase().includes(allele.toUpperCase())) {
-          detectedEntries.push({ 
-            variant, 
-            entry: { gene, star: allele, phenotype: info.pheno, function: info.func } 
-          });
-          break;
-        }
-      }
     }
   }
 
@@ -125,15 +97,18 @@ export const getPhenotypeForGene = (gene: string, variants: VariantRecord[]): Ph
     };
   }
 
-  // Sort by impact
   const sortedEntries = detectedEntries.sort((a, b) => impactOrder[a.entry.function] - impactOrder[b.entry.function]);
+  const primary = sortedEntries[0];
   
-  // The overall phenotype is determined by the most impactful allele
-  const phenotype = sortedEntries[0].entry.phenotype;
+  // Zygosity Check
+  let phenotype = primary.entry.phenotype;
+  if (primary.variant.zygosity === 'heterozygous' && primary.entry.function === 'no_function') {
+    phenotype = Phenotype.IM;
+  }
   
-  // Mark the top 1-2 alleles as causal
-  const causalVariantIds = sortedEntries.slice(0, 2).map(e => e.variant.id);
+  // SLCO1B1 Terminology nuance handled via enum but mapped in LLM logic
   
+  const causalVariantIds = sortedEntries.slice(0, 2).map(e => e.variant.rsid);
   const avgQualOfCausal = sortedEntries.slice(0, 2).reduce((sum, e) => sum + e.variant.quality, 0) / Math.min(2, sortedEntries.length);
 
   return { 

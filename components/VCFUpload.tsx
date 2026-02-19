@@ -1,5 +1,11 @@
-
 import React, { useRef, useState } from 'react';
+import { Upload, Plus, AlertCircle, FileText } from 'lucide-react';
+import { clsx, type ClassValue } from 'clsx';
+import { twMerge } from 'tailwind-merge';
+
+function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
 
 interface VCFUploadProps {
   onFileSelect: (file: File) => void;
@@ -8,22 +14,21 @@ interface VCFUploadProps {
 
 const VCFUpload: React.FC<VCFUploadProps> = ({ onFileSelect, onError }) => {
   const [dragActive, setDragActive] = useState(false);
-  const [fileName, setFileName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+  const MAX_FILE_SIZE = 5000 * 1024 * 1024; // Updated to 5GB as per UI text
 
   const validateFile = (file: File) => {
     setError(null);
-    if (!file.name.endsWith('.vcf')) {
-      const msg = "Invalid file type. Please upload a .vcf file.";
+    if (!file.name.endsWith('.vcf') && !file.name.endsWith('.fastq')) {
+      const msg = "Invalid file type. Please upload a .vcf or .fastq file.";
       setError(msg);
       onError?.(msg);
       return false;
     }
     if (file.size > MAX_FILE_SIZE) {
-      const msg = "File too large. Max size is 5MB per PS1 specification.";
+      const msg = "File too large. Max size is 5GB.";
       setError(msg);
       onError?.(msg);
       return false;
@@ -48,7 +53,6 @@ const VCFUpload: React.FC<VCFUploadProps> = ({ onFileSelect, onError }) => {
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       const file = e.dataTransfer.files[0];
       if (validateFile(file)) {
-        setFileName(file.name);
         onFileSelect(file);
       }
     }
@@ -58,18 +62,18 @@ const VCFUpload: React.FC<VCFUploadProps> = ({ onFileSelect, onError }) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
       if (validateFile(file)) {
-        setFileName(file.name);
         onFileSelect(file);
       }
     }
+    if (e.target) e.target.value = '';
   };
 
   return (
     <div 
-      className={`relative border-2 border-dashed rounded-2xl p-10 transition-all text-center ${
-        dragActive ? 'border-blue-500 bg-blue-50/50' : 
-        error ? 'border-red-300 bg-red-50/30' : 'border-slate-200 hover:border-slate-300 bg-white'
-      }`}
+      className={cn(
+        "flex-1 flex flex-col items-center justify-center relative z-10 w-full h-full",
+        dragActive ? "scale-[1.02]" : ""
+      )}
       onDragEnter={handleDrag}
       onDragLeave={handleDrag}
       onDragOver={handleDrag}
@@ -79,53 +83,40 @@ const VCFUpload: React.FC<VCFUploadProps> = ({ onFileSelect, onError }) => {
         ref={inputRef}
         type="file"
         className="hidden"
-        accept=".vcf"
+        accept=".vcf,.fastq"
         onChange={handleChange}
       />
       
-      <div className="flex flex-col items-center gap-3">
-        <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-2 transition-colors ${
-          error ? 'bg-red-100 text-red-500' : 'bg-slate-100 text-slate-400'
-        }`}>
-          {error ? (
-            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
-          ) : (
-            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-            </svg>
-          )}
+      <div className="relative mb-6">
+        <div className="absolute inset-0 bg-[#007AFF]/20 blur-xl rounded-full scale-150 animate-pulse"></div>
+        <div className="relative size-24 rounded-[24px] bg-gradient-to-br from-white to-gray-50 shadow-lg border border-white flex items-center justify-center group-hover:scale-105 transition-transform duration-500">
+           {error ? <AlertCircle className="text-red-500" size={40} /> : <Plus className="text-[#007AFF]" size={40} />}
         </div>
-        
-        {fileName ? (
-          <div>
-            <p className="text-slate-900 font-bold text-lg">{fileName}</p>
-            <p className="text-slate-500 text-sm">File ready for analysis</p>
-            <button 
-              onClick={() => inputRef.current?.click()}
-              className="mt-4 text-sm font-bold text-blue-600 hover:text-blue-700 underline underline-offset-4"
-            >
-              Select a different file
-            </button>
-          </div>
-        ) : (
-          <>
-            <h3 className={`text-xl font-black ${error ? 'text-red-700' : 'text-slate-900'}`}>
-              {error ? 'Invalid File' : 'Upload Patient VCF'}
-            </h3>
-            <p className="text-slate-500 text-sm max-w-xs mx-auto leading-relaxed">
-              {error || 'Drag and drop your genetic data (VCF v4.2) here. Max file size: 5MB.'}
-            </p>
-            <button 
-              onClick={() => inputRef.current?.click()}
-              className="mt-4 px-8 py-3 bg-slate-900 text-white rounded-xl font-bold hover:bg-slate-800 transition-all active:scale-95 shadow-lg shadow-slate-200"
-            >
-              Browse Files
-            </button>
-          </>
-        )}
       </div>
+
+      <h3 className="text-2xl font-bold text-[#1D1D1F] mb-2 text-center font-display">
+        {error ? 'Validation Error' : 'Drag & Drop Sequence'}
+      </h3>
+      <p className="text-[#86868b] text-center text-sm mb-8 max-w-[200px] leading-relaxed">
+        {error || 'Support for .VCF and .FASTQ files up to 5GB.'}
+      </p>
+
+      <button 
+        onClick={() => inputRef.current?.click()}
+        className="bg-gradient-to-r from-[#007AFF] to-blue-600 text-white font-semibold py-3 px-8 rounded-full shadow-lg shadow-blue-500/30 hover:shadow-blue-500/50 hover:scale-105 active:scale-95 transition-all duration-300 flex items-center gap-2"
+      >
+        <Upload className="text-lg" size={18} />
+        Select File
+      </button>
+
+      {dragActive && (
+        <div className="absolute inset-0 bg-brand-blue/5 border-2 border-dashed border-brand-blue rounded-3xl flex items-center justify-center pointer-events-none z-20">
+          <div className="flex flex-col items-center gap-2">
+            <FileText size={48} className="text-brand-blue animate-bounce" />
+            <span className="text-brand-blue font-bold uppercase text-xs tracking-widest">Drop here</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

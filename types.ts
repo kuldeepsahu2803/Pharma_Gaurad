@@ -1,4 +1,3 @@
-
 export enum Phenotype {
   PM = 'PM',
   IM = 'IM',
@@ -24,22 +23,19 @@ export enum Severity {
   CRITICAL = 'critical'
 }
 
-export interface VariantRecord {
-  chrom: string;
-  pos: number;
-  id: string;
-  ref: string;
-  alt: string;
-  gene: string;
-  quality: number;
-  rsid?: string;
-  rawLine?: string;
-}
-
 export interface DetectedVariant {
   rsid: string;
-  is_causal?: boolean;
-  rawLine?: string;
+  gene: string;
+  star_allele: string;
+  zygosity: 'homozygous_ref' | 'homozygous_alt' | 'heterozygous' | 'hemizygous' | 'hemizygous_ref' | 'unknown';
+}
+
+export interface VariantRecord extends DetectedVariant {
+  chrom: string;
+  pos: number;
+  ref: string;
+  alt: string;
+  quality: number;
 }
 
 export interface PharmacogenomicProfile {
@@ -47,33 +43,28 @@ export interface PharmacogenomicProfile {
   diplotype: string;
   phenotype: Phenotype;
   detected_variants: DetectedVariant[];
-  assumed_wildtype?: boolean;
-  confidence_note?: string;
-  confidence?: number;
 }
 
 export interface ClinicalRecommendation {
-  drug: string;
-  primary_gene: string;
-  recommendation_text: string;
-  risk_label: RiskLabel;
-  severity: Severity;
-  confidence_score: number;
+  action: string;
+  cpic_guideline: string;
+  alternative_drugs: string[];
+  monitoring_required: boolean;
 }
 
 export interface LLMExplanation {
   summary: string;
-  mechanism?: string;
-  clinical_caveats: string;
+  mechanism: string;
+  variant_impact: string;
+  clinical_context: string;
 }
 
 export interface QualityMetrics {
   vcf_parsing_success: boolean;
-  variant_count: number;
-  gene_coverage: string[];
-  assumed_wildtype_genes: string[];
-  variant_quality_score: number;
-  errors: string[];
+  variants_detected: number;
+  genes_analyzed: string[];
+  data_completeness_score: number;
+  errors?: string[];
 }
 
 export interface PharmaGuardResult {
@@ -86,9 +77,7 @@ export interface PharmaGuardResult {
     severity: Severity;
   };
   pharmacogenomic_profile: PharmacogenomicProfile;
-  clinical_recommendation: {
-    summary: string;
-  };
+  clinical_recommendation: ClinicalRecommendation;
   llm_generated_explanation: LLMExplanation;
   quality_metrics: QualityMetrics;
 }
