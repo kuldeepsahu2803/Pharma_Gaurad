@@ -1,0 +1,5 @@
+{
+  "name": "PharmaGuard AI",
+  "description": "An AI-powered pharmacogenomic risk prediction app for analyzing VCF files against CPIC guidelines.",
+  "requestFramePermissions": []
+}
