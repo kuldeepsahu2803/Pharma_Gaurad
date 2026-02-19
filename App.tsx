@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { 
@@ -15,7 +16,7 @@ import ResultDashboard from './components/ResultDashboard';
 import DrugSelection from './components/DrugSelection';
 import { PharmaGuardResult, Phenotype } from './types';
 import { parseVCF } from './services/vcfParser';
-import { getPhenotypeForGene, getDiplotypeForGene } from './services/phenotypeEngine';
+import { getPhenotypeForGene, getDiplotypeForGene, isPathogenicVariant } from './services/phenotypeEngine';
 import { getRecommendation } from './services/ruleEngine';
 import { generateExplanations, buildFallbackExplanation } from './services/geminiService';
 import { DRUG_GENE_MAP } from './constants';
@@ -129,8 +130,17 @@ const App: React.FC = () => {
         const diplotype = getDiplotypeForGene(primaryGene, variants);
         const recData = getRecommendation(drug, phenotype, phenoResult.confidence);
 
-        const primaryVariants = variants
-          .filter(v => v.gene === primaryGene)
+        // Strict Filtering for PS1 Accuracy: 
+        // 1. Exclude variants with homozygous reference genotype (GT 0/0)
+        // 2. Exclude variants that are non-pathogenic (Benign/CPIC3)
+        // 3. DO NOT include rawLine in DetectedVariant output
+        const filteredVariants = variants
+          .filter(v => 
+            v.gene === primaryGene && 
+            v.zygosity !== 'homozygous_ref' && 
+            v.zygosity !== 'unknown' &&
+            isPathogenicVariant(v.rsid)
+          )
           .map(v => ({ 
             rsid: v.rsid,
             gene: v.gene,
@@ -151,7 +161,7 @@ const App: React.FC = () => {
             primary_gene: primaryGene,
             diplotype: diplotype,
             phenotype: phenotype as Phenotype,
-            detected_variants: primaryVariants,
+            detected_variants: filteredVariants,
           },
           clinical_recommendation: {
             action: recData.recommendation_text,
@@ -167,7 +177,7 @@ const App: React.FC = () => {
           },
           quality_metrics: {
             vcf_parsing_success: metrics.vcf_parsing_success,
-            variants_detected: primaryVariants.length,
+            variants_detected: filteredVariants.length,
             genes_analyzed: metrics.genes_analyzed,
             data_completeness_score: metrics.data_completeness_score
           }

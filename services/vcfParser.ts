@@ -35,7 +35,6 @@ function parseZygosity(format: string, sample: string): DetectedVariant['zygosit
   if (gtIndex === -1) return 'unknown';
   const gt = sampleParts[gtIndex].trim();
   
-  // Precise PS1 Mapping
   if (gt === '0/0' || gt === '0|0') return 'homozygous_ref';
   if (gt === '1/1' || gt === '1|1' || gt === '2/2' || gt === '2|2') return 'homozygous_alt';
   if (gt === '0/1' || gt === '0|1' || gt === '1/0' || gt === '1|0' || gt === '1/2' || gt === '1|2') return 'heterozygous';
@@ -46,9 +45,19 @@ function parseZygosity(format: string, sample: string): DetectedVariant['zygosit
   return 'unknown';
 }
 
+function extractDP(format: string, sample: string): number {
+  if (!format || !sample) return 0;
+  const formatParts = format.split(':');
+  const sampleParts = sample.split(':');
+  const dpIndex = formatParts.indexOf('DP');
+  if (dpIndex === -1) return 0;
+  const dpValue = parseInt(sampleParts[dpIndex]);
+  return isNaN(dpValue) ? 0 : dpValue;
+}
+
 export const parseVCF = (content: string): { variants: VariantRecord[], metrics: QualityMetrics } => {
   const lines = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
-  const variants: VariantRecord[] = [];
+  const tempMap = new Map<string, { variant: VariantRecord, dp: number }>();
   const errors: string[] = [];
   let vcf_parsing_success = true;
   const allGeneSymbols = new Set<string>();
@@ -78,6 +87,7 @@ export const parseVCF = (content: string): { variants: VariantRecord[], metrics:
     const rsid = extractFromInfo(info, 'RS') || (id !== '.' ? id : `rs_${pos}_${geneName}`);
     const starAllele = extractFromInfo(info, 'STAR') || '*Unknown';
     const zygosity = parseZygosity(format, sample);
+    const dp = extractDP(format, sample);
 
     const rawQual = parseFloat(qualRaw);
     const variantQuality = isNaN(rawQual) ? 0.85 : Math.min(rawQual / 100, 0.99);
@@ -86,20 +96,28 @@ export const parseVCF = (content: string): { variants: VariantRecord[], metrics:
     qualCount++;
 
     if (SUPPORTED_GENES.includes(geneName)) {
-      variants.push({
-        chrom,
-        pos: parseInt(pos),
-        rsid,
-        ref,
-        alt,
-        gene: geneName,
-        star_allele: starAllele,
-        zygosity: zygosity,
-        quality: variantQuality,
-      });
+      const existing = tempMap.get(rsid);
+      // Keep entry with highest read depth (DP)
+      if (!existing || dp > existing.dp) {
+        tempMap.set(rsid, {
+          dp,
+          variant: {
+            chrom,
+            pos: parseInt(pos),
+            rsid,
+            ref,
+            alt,
+            gene: geneName,
+            star_allele: starAllele,
+            zygosity: zygosity,
+            quality: variantQuality,
+          }
+        });
+      }
     }
   });
 
+  const variants = Array.from(tempMap.values()).map(v => v.variant);
   const genesAnalyzed = Array.from(allGeneSymbols);
   const variant_quality_score = qualCount > 0 ? totalQuality / qualCount : 0.85;
 
@@ -108,7 +126,6 @@ export const parseVCF = (content: string): { variants: VariantRecord[], metrics:
     metrics: {
       vcf_parsing_success,
       variants_detected: variants.length,
-      // Fix: Use correct variable name 'genesAnalyzed' for 'genes_analyzed' property
       genes_analyzed: genesAnalyzed,
       data_completeness_score: variant_quality_score,
       errors
