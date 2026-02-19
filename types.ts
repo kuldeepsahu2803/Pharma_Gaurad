@@ -1,25 +1,27 @@
 
 export enum Phenotype {
-  PM = 'Poor Metabolizer',
-  IM = 'Intermediate Metabolizer',
-  NM = 'Normal Metabolizer',
-  RM = 'Rapid Metabolizer',
-  URM = 'Ultra-rapid Metabolizer',
+  PM = 'PM',
+  IM = 'IM',
+  NM = 'NM',
+  RM = 'RM',
+  URM = 'URM',
   UNKNOWN = 'Unknown'
 }
 
 export enum RiskLabel {
-  LOW = 'Low Risk',
-  MODERATE = 'Moderate Risk',
-  HIGH = 'High Risk',
+  SAFE = 'Safe',
+  ADJUST = 'Adjust Dosage',
+  TOXIC = 'Toxic',
+  INEFFECTIVE = 'Ineffective',
   UNKNOWN = 'Unknown'
 }
 
 export enum Severity {
-  LOW = 'Low',
-  MEDIUM = 'Medium',
-  HIGH = 'High',
-  CRITICAL = 'Critical'
+  NONE = 'none',
+  LOW = 'low',
+  MODERATE = 'moderate',
+  HIGH = 'high',
+  CRITICAL = 'critical'
 }
 
 export interface VariantRecord {
@@ -29,12 +31,25 @@ export interface VariantRecord {
   ref: string;
   alt: string;
   gene: string;
+  quality: number;
+  rsid?: string;
+  rawLine?: string;
+}
+
+export interface DetectedVariant {
+  rsid: string;
+  is_causal?: boolean;
+  rawLine?: string;
 }
 
 export interface PharmacogenomicProfile {
-  gene: string;
+  primary_gene: string;
+  diplotype: string;
   phenotype: Phenotype;
-  detected_variants: VariantRecord[];
+  detected_variants: DetectedVariant[];
+  assumed_wildtype?: boolean;
+  confidence_note?: string;
+  confidence?: number;
 }
 
 export interface ClinicalRecommendation {
@@ -47,21 +62,33 @@ export interface ClinicalRecommendation {
 }
 
 export interface LLMExplanation {
-  explanation: string;
-  mechanism: string;
-  caveats: string;
+  summary: string;
+  mechanism?: string;
+  clinical_caveats: string;
 }
 
 export interface QualityMetrics {
   vcf_parsing_success: boolean;
   variant_count: number;
   gene_coverage: string[];
+  assumed_wildtype_genes: string[];
+  variant_quality_score: number;
   errors: string[];
 }
 
 export interface PharmaGuardResult {
-  risk_assessment: ClinicalRecommendation[];
-  pharmacogenomic_profiles: PharmacogenomicProfile[];
-  llm_generated_explanations: Record<string, LLMExplanation>;
+  patient_id: string;
+  drug: string;
+  timestamp: string;
+  risk_assessment: {
+    risk_label: RiskLabel;
+    confidence_score: number;
+    severity: Severity;
+  };
+  pharmacogenomic_profile: PharmacogenomicProfile;
+  clinical_recommendation: {
+    summary: string;
+  };
+  llm_generated_explanation: LLMExplanation;
   quality_metrics: QualityMetrics;
 }

@@ -1,9 +1,36 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { PharmaGuardResult, LLMExplanation } from "../types";
+import { PharmaGuardResult, LLMExplanation, Phenotype, RiskLabel } from "../types";
+
+/**
+ * Strips markdown code fences from AI response string.
+ */
+function sanitizeLlmJson(raw: string): string {
+  return raw
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/```\s*$/i, '')
+    .trim();
+}
+
+/**
+ * Generates a structured fallback explanation if the LLM fails.
+ */
+export const buildFallbackExplanation = (
+  drug: string, 
+  gene: string, 
+  phenotype: Phenotype, 
+  risk: RiskLabel
+): LLMExplanation => {
+  return {
+    summary: `Analysis of ${gene} indicates a ${phenotype} phenotype, affecting how the body processes ${drug}.`,
+    mechanism: `Genomic variations in ${gene} alter the metabolic clearance rate, leading to ${risk === RiskLabel.TOXIC ? 'elevated drug levels' : 'reduced efficacy'}.`,
+    clinical_caveats: "Standard monitoring for adverse effects and therapeutic response is advised. Adjustments should consider comorbid conditions and polypharmacy."
+  };
+};
 
 export const generateExplanations = async (
-  results: PharmaGuardResult
+  results: PharmaGuardResult[]
 ): Promise<Record<string, LLMExplanation>> => {
   const apiKey = process.env.API_KEY;
   if (!apiKey) throw new Error("API Key missing");
@@ -11,51 +38,68 @@ export const generateExplanations = async (
   const ai = new GoogleGenAI({ apiKey });
   const model = "gemini-3-flash-preview";
 
-  const explanations: Record<string, LLMExplanation> = {};
+  const drugSummaries = results.map(r => 
+    `DRUG: ${r.drug}, PHENO: ${r.pharmacogenomic_profile.phenotype}, RISK: ${r.risk_assessment.risk_label}, REC: ${r.clinical_recommendation.summary}`
+  ).join('\n');
 
-  for (const risk of results.risk_assessment) {
-    const profile = results.pharmacogenomic_profiles.find(p => p.gene === risk.primary_gene);
+  const prompt = `
+    Act as a senior clinical pharmacogeneticist. 
+    Explain the following findings for a clinical dashboard.
     
-    const prompt = `
-      Act as a clinical pharmacogeneticist. Explain the following finding:
-      - Drug: ${risk.drug}
-      - Gene: ${risk.primary_gene}
-      - Phenotype: ${profile?.phenotype || 'Unknown'}
-      - Risk: ${risk.risk_label}
-      - Recommendation: ${risk.recommendation_text}
-      - Detected Variants: ${JSON.stringify(profile?.detected_variants || [])}
+    ${drugSummaries}
 
-      Structure the response as JSON with:
-      - explanation: A clear 2-3 sentence summary.
-      - mechanism: The biochemical mechanism behind this reaction.
-      - caveats: Important medical disclaimers or monitoring needs.
-    `;
+    OUTPUT RULES:
+    1. Return valid JSON only.
+    2. JSON keys must exactly match the DRUG names provided.
+    3. Each value must be an object with: 
+       "summary" (Professional 2-sentence explanation of what this means for the drug), 
+       "mechanism" (Biochemical explanation of the gene-drug interaction), 
+       "clinical_caveats" (Important clinical considerations, limitations, or monitoring requirements).
+    4. Keep it non-prescriptive and grounded in CPIC standards.
+  `;
 
-    try {
-      const response = await ai.models.generateContent({
-        model,
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              explanation: { type: Type.STRING },
-              mechanism: { type: Type.STRING },
-              caveats: { type: Type.STRING },
-            },
-            required: ["explanation", "mechanism", "caveats"],
-          },
-        },
-      });
+  const finalExplanations: Record<string, LLMExplanation> = {};
 
-      if (response.text) {
-        explanations[risk.drug] = JSON.parse(response.text);
+  try {
+    const response = await ai.models.generateContent({
+      model,
+      contents: prompt,
+      config: { responseMimeType: "application/json" },
+    });
+
+    if (response.text) {
+      const cleanedJson = sanitizeLlmJson(response.text);
+      const parsed = JSON.parse(cleanedJson);
+      
+      // Process each drug individually to handle missing keys
+      for (const res of results) {
+        if (parsed[res.drug]) {
+          finalExplanations[res.drug] = parsed[res.drug];
+        } else {
+          finalExplanations[res.drug] = buildFallbackExplanation(
+            res.drug,
+            res.pharmacogenomic_profile.primary_gene,
+            res.pharmacogenomic_profile.phenotype,
+            res.risk_assessment.risk_label
+          );
+        }
       }
-    } catch (error) {
-      console.error(`Failed to generate explanation for ${risk.drug}:`, error);
+      return finalExplanations;
     }
+  } catch (error) {
+    console.error("Gemini explanation parsing failed. Using fallbacks.", error);
   }
 
-  return explanations;
+  // Global fallback if everything fails
+  for (const res of results) {
+    if (!finalExplanations[res.drug]) {
+      finalExplanations[res.drug] = buildFallbackExplanation(
+        res.drug,
+        res.pharmacogenomic_profile.primary_gene,
+        res.pharmacogenomic_profile.phenotype,
+        res.risk_assessment.risk_label
+      );
+    }
+  }
+  return finalExplanations;
 };

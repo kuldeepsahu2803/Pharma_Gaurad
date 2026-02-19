@@ -1,10 +1,34 @@
 
-import { VariantRecord, Phenotype, QualityMetrics, PharmacogenomicProfile } from '../types';
+import { VariantRecord, QualityMetrics } from '../types';
 import { SUPPORTED_GENES } from '../constants';
 
 /**
- * Simplified VCF Parser for prototype.
- * In production, this logic would live on the Python backend.
+ * Extracts gene symbol from a VCF INFO string using multiple fallback strategies.
+ */
+function extractGeneSymbol(info: string): string | null {
+  const simpleMatch = info.match(/(?:^|;)(?:GENE|SYMBOL)=([^;]+)/i);
+  if (simpleMatch) return simpleMatch[1].split(',')[0].toUpperCase();
+
+  const annMatch = info.match(/(?:^|;)ANN=([^;]+)/i);
+  if (annMatch) {
+    const firstEff = annMatch[1].split(',')[0];
+    const parts = firstEff.split('|');
+    if (parts.length > 3) return parts[3].toUpperCase();
+  }
+
+  const csqMatch = info.match(/(?:^|;)CSQ=([^;]+)/i);
+  if (csqMatch) {
+    const firstCsq = csqMatch[1].split(',')[0];
+    const parts = firstCsq.split('|');
+    if (parts.length > 3) return parts[3].toUpperCase();
+  }
+
+  return null;
+}
+
+/**
+ * Robust VCF Parser for PharmaGuard.
+ * Validates format, size, and extracts gene-specific variants with quality tracking.
  */
 export const parseVCF = (content: string): { variants: VariantRecord[], metrics: QualityMetrics } => {
   const lines = content.split('\n');
@@ -12,70 +36,60 @@ export const parseVCF = (content: string): { variants: VariantRecord[], metrics:
   const errors: string[] = [];
   let vcf_parsing_success = true;
 
-  // Basic V4.2 Header Check
+  if (lines.length === 0 || !lines[0].trim()) {
+    return { variants: [], metrics: { vcf_parsing_success: false, variant_count: 0, gene_coverage: [], assumed_wildtype_genes: [], variant_quality_score: 0, errors: ["Empty file."] } };
+  }
+
   if (!lines[0].startsWith('##fileformat=VCFv4.2')) {
-    errors.push("Invalid VCF format. Expected v4.2.");
+    errors.push("Invalid VCF format. System strictly requires VCF v4.2 headers.");
     vcf_parsing_success = false;
   }
 
-  lines.forEach((line, index) => {
+  let totalQuality = 0;
+  let qualCount = 0;
+
+  lines.forEach((line) => {
     if (line.startsWith('#') || !line.trim()) return;
 
     const parts = line.split('\t');
     if (parts.length < 8) return;
 
-    const [chrom, pos, id, ref, alt, qual, filter, info] = parts;
+    const [chrom, pos, id, ref, alt, qualRaw, , info] = parts;
+    const geneName = extractGeneSymbol(info) || 'Unknown';
 
-    // Simplified Gene Extraction from INFO field
-    const geneMatch = info.match(/GENE=([^;]+)/);
-    const geneName = geneMatch ? geneMatch[1] : 'Unknown';
+    const rawQual = parseFloat(qualRaw);
+    const variantQuality = isNaN(rawQual) ? 0.85 : Math.min(rawQual / 100, 0.99);
+    
+    totalQuality += variantQuality;
+    qualCount++;
 
     if (SUPPORTED_GENES.includes(geneName)) {
       variants.push({
         chrom,
         pos: parseInt(pos),
-        id,
+        id: id === '.' ? `rs_${pos}_${geneName}` : id,
         ref,
         alt,
-        gene: geneName
+        gene: geneName,
+        quality: variantQuality,
+        rawLine: line.trim()
       });
     }
   });
+
+  const geneCoverage = [...new Set(variants.map(v => v.gene))];
+  const assumed_wildtype_genes = SUPPORTED_GENES.filter(g => !geneCoverage.includes(g));
+  const variant_quality_score = qualCount > 0 ? totalQuality / qualCount : 0.85;
 
   return {
     variants,
     metrics: {
       vcf_parsing_success,
       variant_count: variants.length,
-      gene_coverage: [...new Set(variants.map(v => v.gene))],
+      gene_coverage: geneCoverage,
+      assumed_wildtype_genes,
+      variant_quality_score,
       errors
     }
   };
-};
-
-export const determinePhenotypes = (variants: VariantRecord[]): PharmacogenomicProfile[] => {
-  return SUPPORTED_GENES.map(gene => {
-    const geneVariants = variants.filter(v => v.gene === gene);
-    let phenotype = Phenotype.NM;
-
-    // Prototype Heuristics (in reality, use star-allele translation tables)
-    if (gene === 'CYP2D6') {
-      if (geneVariants.some(v => v.id.includes('*4') || v.id.includes('*5'))) phenotype = Phenotype.PM;
-      if (geneVariants.some(v => v.id.includes('xN'))) phenotype = Phenotype.URM;
-    }
-    
-    if (gene === 'CYP2C19') {
-       if (geneVariants.some(v => v.id.includes('*2') || v.id.includes('*3'))) phenotype = Phenotype.PM;
-    }
-
-    if (gene === 'SLCO1B1') {
-       if (geneVariants.some(v => v.id.includes('*5'))) phenotype = Phenotype.PM;
-    }
-
-    return {
-      gene,
-      phenotype,
-      detected_variants: geneVariants
-    };
-  });
 };
