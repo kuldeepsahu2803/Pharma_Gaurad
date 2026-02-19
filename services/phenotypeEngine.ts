@@ -1,3 +1,4 @@
+
 import { VariantRecord, Phenotype } from '../types';
 
 type VariantFunction = 'no_function' | 'decreased' | 'increased' | 'normal';
@@ -47,23 +48,29 @@ const impactOrder: Record<VariantFunction, number> = {
 
 /**
  * Pathogenicity check incorporating deterministic rsID map and dynamic CPIC/CLNSIG annotations.
- * Requirement: Accept CPIC 1A, 1B, 2A, 2B. Reject if CLNSIG is Benign/Uncertain.
+ * Requirement: Accept CPIC 1A, 1B, 2A, 2B. Reject if CLNSIG is Benign/Uncertain or CPIC Level 3+.
  */
 export const isPathogenicVariant = (v: VariantRecord): boolean => {
-  // 1. High-confidence internal map check
+  // 1. Check for explicit exclusions first (Level 3 or Benign/Uncertain)
+  if (v.cpic_level) {
+    const level = v.cpic_level.toUpperCase();
+    if (level.startsWith('3')) return false;
+  }
+  
+  if (v.clinical_significance) {
+    const sig = v.clinical_significance.toLowerCase();
+    if (sig.includes('benign') || sig.includes('uncertain')) {
+      return false;
+    }
+  }
+
+  // 2. High-confidence internal map check
   if (v.rsid in PATHOGENIC_MAP) return true;
   
-  // 2. Dynamic annotation check from VCF INFO field (as per PS1 requirements)
+  // 3. Dynamic annotation check from VCF INFO field
   if (v.cpic_level) {
     const validLevels = ['1A', '1B', '2A', '2B'];
     if (validLevels.includes(v.cpic_level.toUpperCase())) {
-      // Exclude if explicitly annotated as benign or uncertain
-      if (v.clinical_significance) {
-        const sig = v.clinical_significance.toLowerCase();
-        if (sig.includes('benign') || sig.includes('uncertain')) {
-          return false;
-        }
-      }
       return true;
     }
   }
@@ -90,7 +97,7 @@ export const getDiplotypeForGene = (gene: string, variants: VariantRecord[]): st
     return {
       star: mapEntry ? mapEntry.star : v.star_allele,
       zygosity: v.zygosity,
-      func: mapEntry ? mapEntry.function : 'no_function' // Default to no_function if marked pathogenic via CPIC
+      func: mapEntry ? mapEntry.function : 'no_function' 
     };
   });
 

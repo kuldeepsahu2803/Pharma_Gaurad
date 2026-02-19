@@ -1,3 +1,4 @@
+
 import { VariantRecord, QualityMetrics, DetectedVariant } from '../types';
 import { SUPPORTED_GENES } from '../constants';
 
@@ -29,14 +30,15 @@ function extractGeneSymbol(info: string): string | null {
 function parseZygosity(format: string, sample: string): DetectedVariant['zygosity'] {
   if (!format || !sample) return 'unknown';
   
-  const formatParts = format.split(':');
-  const sampleParts = sample.split(':');
+  // Strict splitting by colon and trimming for reliable GT extraction
+  const formatParts = format.split(':').map(p => p.trim());
+  const sampleParts = sample.split(':').map(p => p.trim());
   const gtIndex = formatParts.indexOf('GT');
   
   if (gtIndex === -1) return 'unknown';
   
   // Extract GT and handle potential formatting variants
-  const rawGt = sampleParts[gtIndex].trim();
+  const rawGt = sampleParts[gtIndex];
   
   // Standard VCF GT mapping
   if (rawGt === '0/0' || rawGt === '0|0') return 'homozygous_ref';
@@ -44,14 +46,15 @@ function parseZygosity(format: string, sample: string): DetectedVariant['zygosit
   if (rawGt === '0/1' || rawGt === '0|1' || rawGt === '1/0' || rawGt === '1|0' || rawGt === '0/2' || rawGt === '1/2') return 'heterozygous';
   if (rawGt === '1/.' || rawGt === './1' || rawGt === '1|.' || rawGt === '.|1' || rawGt === '1') return 'hemizygous';
   if (rawGt === '0/.' || rawGt === './0' || rawGt === '0|.' || rawGt === '.|0' || rawGt === '0') return 'hemizygous_ref';
+  if (rawGt === './.' || rawGt === '.') return 'unknown';
   
   return 'unknown';
 }
 
 function extractDP(format: string, sample: string): number {
   if (!format || !sample) return 0;
-  const formatParts = format.split(':');
-  const sampleParts = sample.split(':');
+  const formatParts = format.split(':').map(p => p.trim());
+  const sampleParts = sample.split(':').map(p => p.trim());
   const dpIndex = formatParts.indexOf('DP');
   if (dpIndex === -1) return 0;
   const dpValue = parseInt(sampleParts[dpIndex]);
@@ -83,8 +86,8 @@ export const parseVCF = (content: string): { variants: VariantRecord[], metrics:
   lines.forEach((line) => {
     if (line.startsWith('#') || !line.trim()) return;
 
-    // Strict split by TAB as per clinical requirements
-    const parts = line.split('\t');
+    // Strict split by TAB as per clinical requirements. Trim each part to avoid whitespace issues.
+    const parts = line.split('\t').map(p => p.trim());
     if (parts.length < 10) return;
 
     const chrom = parts[0];
@@ -100,8 +103,9 @@ export const parseVCF = (content: string): { variants: VariantRecord[], metrics:
     const geneName = extractGeneSymbol(info) || 'Unknown';
     if (geneName !== 'Unknown') allGeneSymbols.add(geneName);
 
-    // Extraction of primary markers
-    const rsid = extractFromInfo(info, 'RS') || (id !== '.' ? id.trim() : `rs_${pos}_${geneName}`);
+    // Extraction of primary markers. Split ID column to handle multiple entries.
+    const ids = id.split(';').map(s => s.trim());
+    const rsid = extractFromInfo(info, 'RS') || (ids[0] !== '.' ? ids[0] : `rs_${pos}_${geneName}`);
     const starAllele = extractFromInfo(info, 'STAR') || '*Unknown';
     const zygosity = parseZygosity(format, sample);
     const dp = extractDP(format, sample);

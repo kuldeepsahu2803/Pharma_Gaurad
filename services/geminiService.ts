@@ -80,8 +80,8 @@ const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
 export const generateExplanations = async (
   results: PharmaGuardResult[]
 ): Promise<Record<string, LLMExplanation>> => {
-  const apiKey = process.env.API_KEY || '';
-  const model = "gemini-3-flash-preview";
+  // Model 'gemini-3-pro-preview' is selected for complex genomic analysis and reasoning tasks.
+  const model = 'gemini-3-pro-preview';
   const explanationMap: Record<string, LLMExplanation> = {};
 
   for (const res of results) {
@@ -100,11 +100,8 @@ export const generateExplanations = async (
 
     while (attempts < maxAttempts && !success) {
       try {
-        if (!apiKey || apiKey === 'PLACEHOLDER_API_KEY') {
-          throw new Error("Missing or invalid GEMINI_API_KEY in environment.");
-        }
-
-        const ai = new GoogleGenAI({ apiKey });
+        // Initialize Gemini client using process.env.API_KEY as per the guidelines.
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
         
         const response = await ai.models.generateContent({
           model,
@@ -131,8 +128,10 @@ export const generateExplanations = async (
           },
         });
 
-        if (response.text) {
-          const parsed = JSON.parse(response.text.trim());
+        // Use response.text getter directly as per current SDK patterns.
+        const outputText = response.text;
+        if (outputText) {
+          const parsed = JSON.parse(outputText.trim());
           explanationMap[res.drug] = parsed.llm_generated_explanation;
           success = true;
           await delay(1500); 
