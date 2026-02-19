@@ -1,6 +1,27 @@
-
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
+import { 
+  CheckCircle2, 
+  TriangleAlert, 
+  OctagonX, 
+  CircleHelp, 
+  Sparkles, 
+  ExternalLink, 
+  ChevronDown, 
+  ChevronUp,
+  FlaskConical,
+  Activity,
+  Dna,
+  ShieldCheck,
+  Zap
+} from 'lucide-react';
 import { PharmaGuardResult, RiskLabel, Severity, Phenotype, DetectedVariant } from '../types';
+import { clsx, type ClassValue } from 'clsx';
+import { twMerge } from 'tailwind-merge';
+
+function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
 
 interface ResultDashboardProps {
   results: PharmaGuardResult[];
@@ -13,401 +34,450 @@ const PHENOTYPE_MAP: Record<string, string> = {
   [Phenotype.NM]: "Normal metabolizer",
   [Phenotype.RM]: "Fast metabolizer",
   [Phenotype.URM]: "Ultra-fast metabolizer",
-  [Phenotype.UNKNOWN]: "Could not determine"
+  [Phenotype.UNKNOWN]: "Unknown Metabolism"
 };
 
-const RISK_MAP: Record<string, string> = {
-  [RiskLabel.TOXIC]: "⚠️ High Risk — this drug may be harmful",
-  [RiskLabel.INEFFECTIVE]: "⚠️ Low Benefit — this drug may not work",
-  [RiskLabel.ADJUST]: "⚡ Dose adjustment likely needed",
-  [RiskLabel.SAFE]: "✓ Generally safe based on your genes",
-  [RiskLabel.UNKNOWN]: "? Insufficient genetic data"
+const RiskBadgeIcon = ({ level, size = 16, className = "", strokeWidth }: { level: RiskLabel, size?: number, className?: string, strokeWidth?: number }) => {
+  const shouldReduceMotion = useReducedMotion();
+  
+  const variants = {
+    initial: shouldReduceMotion ? { opacity: 1, scale: 1 } : { opacity: 0, scale: 0.8 },
+    animate: { opacity: 1, scale: 1 },
+    transition: { type: "spring", stiffness: 400, damping: 25, delay: 0.1 }
+  };
+
+  const iconProps = { size, strokeWidth, className };
+
+  return (
+    <motion.div {...variants} className={className}>
+      {(() => {
+        switch (level) {
+          case RiskLabel.SAFE: return <CheckCircle2 {...iconProps} className={cn("text-[#22C55E]", className)} />;
+          case RiskLabel.ADJUST: return <TriangleAlert {...iconProps} className={cn("text-[#F59E0B]", className)} />;
+          case RiskLabel.TOXIC:
+          case RiskLabel.INEFFECTIVE: return <OctagonX {...iconProps} className={cn("text-[#EF4444]", className)} />;
+          default: return <CircleHelp {...iconProps} className={cn("text-[#6B7280]", className)} />;
+        }
+      })()}
+    </motion.div>
+  );
 };
 
-const WHATIF_RULES: Record<string, Record<string, Record<string, { risk_label: string; severity: string }>>> = {
-  CYP2D6: {
-    CODEINE: { PM: { risk_label: 'Toxic', severity: 'high' }, IM: { risk_label: 'Adjust Dosage', severity: 'moderate' }, NM: { risk_label: 'Safe', severity: 'none' }, URM: { risk_label: 'Ineffective', severity: 'moderate' } },
-    WARFARIN: { NM: { risk_label: 'Safe', severity: 'none' } }, // Simple mapping for cross-check
-  },
-  CYP2C9: {
-    WARFARIN: { PM: { risk_label: 'Adjust Dosage', severity: 'high' }, IM: { risk_label: 'Adjust Dosage', severity: 'moderate' }, NM: { risk_label: 'Safe', severity: 'none' } },
-  },
-  CYP2C19: {
-    CLOPIDOGREL: { PM: { risk_label: 'Ineffective', severity: 'high' }, IM: { risk_label: 'Adjust Dosage', severity: 'moderate' }, NM: { risk_label: 'Safe', severity: 'none' } },
-  },
-  SLCO1B1: {
-    SIMVASTATIN: { PM: { risk_label: 'Toxic', severity: 'high' }, IM: { risk_label: 'Adjust Dosage', severity: 'moderate' }, NM: { risk_label: 'Safe', severity: 'none' } },
-  },
-  TPMT: {
-    AZATHIOPRINE: { PM: { risk_label: 'Toxic', severity: 'critical' }, IM: { risk_label: 'Adjust Dosage', severity: 'moderate' }, NM: { risk_label: 'Safe', severity: 'none' } },
-  },
-  DPYD: {
-    FLUOROURACIL: { PM: { risk_label: 'Toxic', severity: 'critical' }, IM: { risk_label: 'Adjust Dosage', severity: 'high' }, NM: { risk_label: 'Safe', severity: 'none' } },
-  },
+const StatusBadge = ({ label }: { label: RiskLabel }) => {
+  const styles = {
+    [RiskLabel.SAFE]: "text-[#22C55E] bg-green-950/40 border-green-800",
+    [RiskLabel.ADJUST]: "text-[#F59E0B] bg-amber-950/40 border-amber-800",
+    [RiskLabel.TOXIC]: "text-[#EF4444] bg-red-950/40 border-red-800",
+    [RiskLabel.INEFFECTIVE]: "text-[#EF4444] bg-red-950/40 border-red-800",
+    [RiskLabel.UNKNOWN]: "text-[#6B7280] bg-gray-900/40 border-gray-700",
+  }[label] || "text-[#6B7280] bg-gray-900/40 border-gray-700";
+
+  return (
+    <span className={cn("inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-[10px] font-bold uppercase tracking-wider", styles)}>
+      <RiskBadgeIcon level={label} size={12} strokeWidth={2.5} />
+      {label}
+    </span>
+  );
 };
 
 const MetabolicTimeline: React.FC<{ res: PharmaGuardResult }> = ({ res }) => {
   const pgProfile = res.pharmacogenomic_profile;
   const risk = res.risk_assessment;
   const causalVariant = pgProfile.detected_variants.find(v => v.is_causal);
+  const shouldReduceMotion = useReducedMotion();
 
   const steps = [
-    { title: "Gene Detected", value: pgProfile.primary_gene },
-    causalVariant && { title: "Causal Variant Identified", value: `${causalVariant.rsid} — Evidence of functional impact` },
-    { title: "Diplotype & Phenotype Assigned", value: `${pgProfile.diplotype} → ${pgProfile.phenotype}` },
-    { title: "CPIC Rule Applied", value: `${pgProfile.phenotype} + ${res.drug} → ${risk.risk_label}` },
-    { title: "Risk Classification", value: `${risk.risk_label} | Severity: ${risk.severity} | Confidence: ${(risk.confidence_score * 100).toFixed(0)}%` },
-  ].filter(Boolean) as { title: string; value: string }[];
+    { 
+      title: "Gene Identification", 
+      value: pgProfile.primary_gene, 
+      desc: "Target enzyme isolation successful",
+      Icon: FlaskConical 
+    },
+    { 
+      title: "Sequence Analysis", 
+      value: causalVariant?.rsid || "Polymorphism Analysis", 
+      desc: causalVariant ? "Functional variant identified" : "Wild-type consensus mapped",
+      variant: causalVariant?.rsid,
+      isAffected: !!causalVariant,
+      Icon: Activity 
+    },
+    { 
+      title: "Phenotype Translation", 
+      value: `${pgProfile.diplotype} → ${pgProfile.phenotype}`, 
+      desc: "Metabolic rate classification",
+      Icon: Zap 
+    },
+    { 
+      title: "Protocol Match", 
+      value: risk.risk_label, 
+      desc: "CPIC Guideline v4.2 alignment",
+      isAffected: risk.risk_label !== RiskLabel.SAFE,
+      Icon: ShieldCheck 
+    },
+  ];
 
-  return (
-    <div className="mt-8 border-l-2 border-zinc-200/50 dark:border-zinc-700/50 pl-4 ml-2">
-      <h5 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-6">Metabolic Reasoning Path</h5>
-      {steps.map((step, idx) => (
-        <div key={idx} className="relative mb-6 last:mb-0">
-          <div className="absolute -left-6 w-3.5 h-3.5 rounded-full bg-slate-200 dark:bg-zinc-700 border-2 border-white dark:border-zinc-900 flex items-center justify-center">
-            <span className="text-[8px] font-bold text-slate-500 dark:text-slate-400">{idx + 1}</span>
-          </div>
-          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">{step.title}</p>
-          <p className={`text-sm font-medium mt-0.5 ${idx === steps.length - 1 ? 'text-blue-600 dark:text-blue-400' : 'text-slate-700 dark:text-zinc-200'}`}>
-            {step.value}
-          </p>
-        </div>
-      ))}
-    </div>
-  );
-};
-
-const RiskSummaryTable: React.FC<{ results: PharmaGuardResult[] }> = ({ results }) => {
-  const getBadgeColor = (label: RiskLabel) => {
-    switch (label) {
-      case RiskLabel.SAFE: return 'bg-emerald-500';
-      case RiskLabel.ADJUST: return 'bg-amber-500';
-      case RiskLabel.TOXIC:
-      case RiskLabel.INEFFECTIVE: return 'bg-red-500';
-      default: return 'bg-zinc-500';
+  const containerVariants = {
+    animate: {
+      transition: {
+        staggerChildren: shouldReduceMotion ? 0 : 0.15
+      }
     }
   };
 
-  return (
-    <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-slate-200 dark:border-zinc-800 overflow-hidden mb-10 shadow-sm">
-      <div className="overflow-x-auto">
-        <table className="w-full text-left">
-          <thead className="bg-slate-50 dark:bg-zinc-800/50">
-            <tr>
-              <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-slate-400">Drug</th>
-              <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-slate-400">Gene</th>
-              <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-slate-400 text-center">Risk</th>
-              <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-slate-400">Severity</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100 dark:divide-zinc-800">
-            {results.map((res) => (
-              <tr 
-                key={res.drug} 
-                onClick={() => document.getElementById(`drug-${res.drug}`)?.scrollIntoView({ behavior: 'smooth' })}
-                className="hover:bg-slate-50 dark:hover:bg-zinc-800/50 cursor-pointer transition-colors"
-              >
-                <td className="px-6 py-4 text-sm font-bold text-slate-900 dark:text-zinc-100 underline decoration-dotted decoration-slate-300 underline-offset-4">{res.drug}</td>
-                <td className="px-6 py-4 text-sm font-medium text-slate-500 dark:text-zinc-400 font-mono">{res.pharmacogenomic_profile.primary_gene}</td>
-                <td className="px-6 py-4 text-center">
-                  <span className={`inline-block px-3 py-1 rounded-full text-[10px] font-black uppercase text-white ${getBadgeColor(res.risk_assessment.risk_label)}`}>
-                    {res.risk_assessment.risk_label}
-                  </span>
-                </td>
-                <td className="px-6 py-4 text-sm font-bold text-slate-600 dark:text-zinc-400 capitalize">{res.risk_assessment.severity}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-};
-
-const AccordionSection: React.FC<{ 
-  title: string, 
-  isOpen: boolean, 
-  onToggle: () => void, 
-  children: React.ReactNode 
-}> = ({ title, isOpen, onToggle, children }) => {
-  return (
-    <div className="border-t border-black/5 dark:border-white/5 mt-4 pt-4 overflow-hidden">
-      <button 
-        onClick={onToggle}
-        className="flex items-center justify-between w-full text-left focus:outline-none group"
-      >
-        <h4 className="text-[11px] font-black uppercase tracking-widest text-slate-500 dark:text-zinc-500 flex items-center gap-2 group-hover:text-blue-600 transition-colors">
-          <span className={`w-1.5 h-1.5 rounded-full ${isOpen ? 'bg-blue-500' : 'bg-slate-300 dark:bg-zinc-700'}`}></span>
-          {title}
-        </h4>
-        <span className="text-slate-400 group-hover:text-blue-500 transition-all text-xs">
-          {isOpen ? '▲' : '▼'}
-        </span>
-      </button>
-      <div className={`transition-all duration-300 ease-in-out ${isOpen ? 'max-h-[2000px] opacity-100 mt-4' : 'max-h-0 opacity-0 invisible'}`}>
-        {isOpen && children}
-      </div>
-    </div>
-  );
-};
-
-const VariantRow: React.FC<{ variant: DetectedVariant; viewMode: 'clinician' | 'patient' }> = ({ variant, viewMode }) => {
-  const [showSource, setShowSource] = useState(false);
-
-  return (
-    <div className="mb-2 last:mb-0">
-      <div className={`text-[11px] flex justify-between p-2 rounded-xl border transition-all ${variant.is_causal ? 'bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800/50' : 'bg-slate-50 dark:bg-zinc-800/50 border-transparent'}`}>
-        <div className="flex items-center gap-2">
-          {viewMode === 'clinician' ? (
-            <span className="font-mono font-bold text-slate-700 dark:text-zinc-200">{variant.rsid}</span>
-          ) : (
-            <span className="font-bold text-slate-700 dark:text-zinc-200">Gene variation detected</span>
-          )}
-          {viewMode === 'clinician' && variant.rawLine && (
-            <button 
-              onClick={() => setShowSource(!showSource)}
-              className="text-[9px] font-black text-blue-500 hover:text-blue-600 uppercase tracking-tighter"
-            >
-              [View Source]
-            </button>
-          )}
-        </div>
-        {variant.is_causal && (
-          <span className="text-[9px] font-black text-amber-700 dark:text-amber-500 uppercase flex items-center gap-1 animate-pulse">
-            <span className="w-1 h-1 bg-amber-600 rounded-full"></span>
-            Causal Evidence
-          </span>
-        )}
-      </div>
-      {showSource && viewMode === 'clinician' && variant.rawLine && (
-        <pre className="bg-zinc-900 border border-zinc-700 rounded p-2 font-mono text-[10px] text-zinc-300 mt-1 overflow-x-auto">
-          {variant.rawLine}
-        </pre>
-      )}
-    </div>
-  );
-};
-
-const DrugResultCard: React.FC<{ res: PharmaGuardResult; viewMode: 'clinician' | 'patient' }> = ({ res, viewMode }) => {
-  const [sections, setSections] = useState({
-    variants: false,
-    recommendation: false,
-    explanation: false
-  });
-  const [whatIfDrug, setWhatIfDrug] = useState<string>('');
-
-  const toggleSection = (key: keyof typeof sections) => {
-    setSections(prev => ({ ...prev, [key]: !prev[key] }));
+  const itemVariants = {
+    initial: { opacity: 0, x: -10 },
+    animate: { opacity: 1, x: 0 },
   };
 
+  return (
+    <div className="mt-8 relative">
+      <div className="flex items-center gap-2 mb-6">
+        <Activity size={12} className="text-[#8B90A7]" />
+        <h5 className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#8B90A7]">Metabolic Reasoning Path</h5>
+      </div>
+      
+      <motion.div 
+        variants={containerVariants}
+        initial="initial"
+        animate="animate"
+        className="space-y-0 relative"
+      >
+        {steps.map((step, i) => (
+          <motion.div 
+            key={i} 
+            variants={itemVariants}
+            className="flex items-start gap-6 relative"
+          >
+            {/* Connector line */}
+            {i < steps.length - 1 && (
+              <motion.div 
+                initial={{ scaleY: 0 }}
+                animate={{ scaleY: 1 }}
+                transition={{ delay: i * 0.15 + 0.2, duration: 0.3 }}
+                className="absolute left-[19px] top-[38px] w-[2px] h-[calc(100%+8px)] bg-[#2E3147] origin-top" 
+              />
+            )}
+
+            {/* Node */}
+            <div className={cn(
+              "w-10 h-10 shrink-0 rounded-full border-2 flex items-center justify-center z-10 transition-colors",
+              "bg-[#222533]",
+              step.isAffected ? "border-[#EF4444] shadow-[0_0_15px_rgba(239,68,68,0.2)]" : "border-[#2E3147]"
+            )}>
+              <step.Icon size={16} className={step.isAffected ? "text-[#EF4444]" : "text-[#8B90A7]"} />
+            </div>
+
+            {/* Content */}
+            <div className="pb-8">
+              <p className="text-[10px] font-bold text-[#8B90A7] uppercase tracking-wider">{step.title}</p>
+              <p className="text-sm font-bold text-[#F0F2F8] mt-0.5">{step.value}</p>
+              <p className="text-xs text-[#8B90A7] mt-0.5">{step.desc}</p>
+              {step.variant && (
+                <span className="mt-1.5 inline-block font-mono text-[11px] bg-[#222533] border border-[#2E3147] px-2 py-0.5 rounded text-[#F59E0B]">
+                  {step.variant}
+                </span>
+              )}
+            </div>
+          </motion.div>
+        ))}
+      </motion.div>
+    </div>
+  );
+};
+
+const Accordion: React.FC<{ 
+  title: string, 
+  icon: React.ReactNode,
+  children: React.ReactNode 
+}> = ({ title, icon, children }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  return (
+    <div className="border-t border-[#2E3147] first:border-t-0">
+      <button 
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex items-center justify-between py-4 group transition-colors hover:bg-[#222533]/50 px-6"
+      >
+        <div className="flex items-center gap-3">
+          <span className="text-[#8B90A7] group-hover:text-[#4F8EF7] transition-colors">{icon}</span>
+          <span className="text-[11px] font-bold uppercase tracking-widest text-[#8B90A7]">{title}</span>
+        </div>
+        {isOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+      </button>
+      <AnimatePresence initial={false}>
+        {isOpen && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+            className="overflow-hidden bg-[#0F1117]/50"
+          >
+            <div className="p-6 pt-0">{children}</div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
+const DrugResultCard: React.FC<{ 
+  res: PharmaGuardResult; 
+  viewMode: 'clinician' | 'patient';
+  highlightedRsid: string | null;
+  onHoverRsid: (rsid: string | null) => void;
+}> = ({ res, viewMode, highlightedRsid, onHoverRsid }) => {
   const risk = res.risk_assessment;
   const aiExp = res.llm_generated_explanation;
   const pgProfile = res.pharmacogenomic_profile;
 
-  const getRiskColor = (label: RiskLabel) => {
-    switch (label) {
-      case RiskLabel.TOXIC:
-      case RiskLabel.INEFFECTIVE: return 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-900/50 text-red-700 dark:text-red-400';
-      case RiskLabel.ADJUST: return 'bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900/50 text-amber-700 dark:text-amber-400';
-      case RiskLabel.SAFE: return 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-900/50 text-emerald-700 dark:text-emerald-400';
-      default: return 'bg-slate-50 dark:bg-zinc-900/50 border-slate-200 dark:border-zinc-800 text-slate-700 dark:text-zinc-400';
-    }
-  };
-
-  const getSeverityBadge = (sev: Severity) => {
-    switch (sev) {
-      case Severity.CRITICAL: return 'bg-red-600 text-white';
-      case Severity.HIGH: return 'bg-red-500 text-white';
-      case Severity.MODERATE: return 'bg-amber-500 text-white';
-      case Severity.LOW: return 'bg-emerald-500 text-white';
-      default: return 'bg-slate-500 text-white';
-    }
-  };
-
-  const whatIfResult = whatIfDrug ? WHATIF_RULES[pgProfile.primary_gene]?.[whatIfDrug]?.[pgProfile.phenotype] : null;
+  const severityStyles = {
+    [Severity.CRITICAL]: "bg-[#EF4444] text-white",
+    [Severity.HIGH]: "bg-red-600 text-white",
+    [Severity.MODERATE]: "bg-[#F59E0B] text-black",
+    [Severity.LOW]: "bg-[#22C55E] text-white",
+    [Severity.NONE]: "bg-[#8B90A7] text-white",
+  }[risk.severity] || "bg-[#8B90A7]";
 
   return (
-    <div id={`drug-${res.drug}`} className={`rounded-2xl border-2 p-6 transition-all ${getRiskColor(risk.risk_label)} shadow-sm hover:shadow-md mb-6`}>
-      {/* HEADER */}
-      <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-4">
-        <div>
-          <div className="flex items-center gap-2 mb-2">
-            <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-tight ${getSeverityBadge(risk.severity)}`}>
-              {risk.severity} Severity
-            </span>
-            <span className="text-sm font-bold opacity-80">
-              {viewMode === 'clinician' ? risk.risk_label : RISK_MAP[risk.risk_label]}
-            </span>
-          </div>
-          <h3 className="text-3xl font-black tracking-tight dark:text-white">{res.drug}</h3>
-          <p className="text-lg mt-1 font-semibold opacity-90">{pgProfile.primary_gene} Interaction</p>
+    <div className={cn(
+      "relative bg-[#1A1D27] rounded-xl border border-[#2E3147] overflow-hidden shadow-2xl transition-all",
+      "before:absolute before:left-0 before:top-6 before:bottom-6 before:w-[4px] before:rounded-full before:z-10",
+      risk.risk_label === RiskLabel.SAFE && "before:bg-[#22C55E]",
+      (risk.risk_label === RiskLabel.TOXIC || risk.risk_label === RiskLabel.INEFFECTIVE) && "before:bg-[#EF4444]",
+      risk.risk_label === RiskLabel.ADJUST && "before:bg-[#F59E0B]",
+      risk.risk_label === RiskLabel.UNKNOWN && "before:bg-[#6B7280]"
+    )}>
+      {/* CARD HEADER */}
+      <div className="p-8 pb-4">
+        <div className="flex items-center gap-3 mb-4">
+          <StatusBadge label={risk.risk_label} />
+          <span className={cn("px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight", severityStyles)}>
+            {risk.severity} Severity
+          </span>
         </div>
         
-        <div className="flex flex-col items-end gap-3">
-          <div className="bg-white/40 dark:bg-black/20 backdrop-blur-sm rounded-xl px-4 py-2 border border-black/5 self-start md:self-auto min-w-[140px]">
-            <p className="text-[10px] font-black uppercase opacity-60">Genotype Status</p>
-            <p className="text-sm font-bold dark:text-zinc-200">
-              {viewMode === 'clinician' ? pgProfile.phenotype : PHENOTYPE_MAP[pgProfile.phenotype]}
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+          <div>
+            <h3 className="text-[28px] font-black tracking-tight leading-none text-[#F0F2F8]">{res.drug}</h3>
+            <p className="text-sm font-bold text-[#8B90A7] mt-2 flex items-center gap-2">
+              <span className="font-mono text-[12px] bg-[#222533] px-2 py-0.5 rounded border border-[#2E3147]">
+                {pgProfile.primary_gene}
+              </span>
+              Interaction Profile
             </p>
           </div>
-          
-          {/* WHAT-IF DROPDOWN */}
-          <div className="relative w-full md:w-auto">
-            <select 
-              className="w-full text-[10px] font-black uppercase tracking-tighter bg-white/20 hover:bg-white/40 border border-black/10 rounded-lg px-3 py-2 outline-none cursor-pointer dark:text-zinc-300"
-              value={whatIfDrug}
-              onChange={(e) => setWhatIfDrug(e.target.value)}
-            >
-              <option value="">What-if Comparison</option>
-              {['CODEINE', 'WARFARIN', 'CLOPIDOGREL', 'SIMVASTATIN', 'AZATHIOPRINE', 'FLUOROURACIL']
-                .filter(d => d !== res.drug)
-                .map(d => <option key={d} value={d}>{d}</option>)
-              }
-            </select>
+          <div className="flex items-center gap-4">
+            <div className="text-right">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-[#8B90A7]">Genetic Phenotype</p>
+              <p className="text-base font-bold text-[#F0F2F8]">
+                {viewMode === 'clinician' ? pgProfile.phenotype : PHENOTYPE_MAP[pgProfile.phenotype] || pgProfile.phenotype}
+              </p>
+            </div>
+            <div className="w-[1px] h-10 bg-[#2E3147]" />
+            <div className="text-right">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-[#8B90A7]">Confidence</p>
+              <p className="text-base font-mono font-bold text-[#4F8EF7]">{(risk.confidence_score * 100).toFixed(0)}%</p>
+            </div>
           </div>
         </div>
       </div>
 
-      {whatIfResult && (
-        <div className="mb-4 bg-white/30 dark:bg-black/10 rounded-xl p-3 border border-black/5 flex flex-col sm:flex-row justify-between items-center text-[11px] font-bold gap-2">
-          <div className="flex items-center gap-2 opacity-60">
-            <span className="uppercase">Current:</span>
-            <span className="text-slate-900 dark:text-zinc-200">{res.drug} → {risk.risk_label} ({risk.severity})</span>
-          </div>
-          <div className="hidden sm:block text-slate-300">|</div>
-          <div className="flex items-center gap-2">
-            <span className="uppercase text-blue-600 dark:text-blue-400">Comparison:</span>
-            <span className="text-slate-900 dark:text-zinc-100">{whatIfDrug} → {whatIfResult.risk_label} ({whatIfResult.severity})</span>
-          </div>
+      <div className="px-8 pb-8">
+        {/* RECOMMENDATION BOX */}
+        <div className="bg-[#222533] border border-[#2E3147] rounded-xl p-6 mt-4">
+          <h4 className="text-[11px] font-bold uppercase tracking-widest text-[#8B90A7] mb-3">Clinical Management Strategy</h4>
+          <p className="text-base font-semibold leading-relaxed text-[#F0F2F8]">
+            {res.clinical_recommendation.summary}
+          </p>
         </div>
-      )}
 
-      {pgProfile.assumed_wildtype && (
-        <div className="mb-4 bg-amber-900/10 border border-amber-500/30 text-amber-800 dark:text-amber-500 rounded-xl px-4 py-2 text-sm flex items-center gap-3 font-medium">
-          <svg className="w-5 h-5 text-amber-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-          {pgProfile.confidence_note}
-        </div>
-      )}
-
-      {/* ACCORDION 1: DETECTED VARIANTS */}
-      <AccordionSection 
-        title="Detected Variants & Genomic Evidence" 
-        isOpen={sections.variants} 
-        onToggle={() => toggleSection('variants')}
-      >
-        <div className="bg-white/40 dark:bg-black/10 rounded-xl p-4 border border-black/5">
-          <div className="flex justify-between items-center mb-4">
-             <div>
-               <p className="text-[10px] font-black uppercase opacity-60">Haplotype Identity</p>
-               <p className="text-sm font-mono font-bold text-slate-700 dark:text-zinc-200">
-                 {viewMode === 'clinician' ? pgProfile.diplotype : pgProfile.primary_gene + " Genetic Profile"}
-               </p>
-             </div>
-             <div className="text-right">
-               <p className="text-[10px] font-black uppercase opacity-60">Mapping Quality</p>
-               <p className="text-sm font-bold text-slate-700 dark:text-zinc-200">{(pgProfile.confidence ?? 0 * 100).toFixed(1)}%</p>
-             </div>
+        {/* AI REASONING PANEL */}
+        <div className="mt-8">
+          <div className="flex items-center gap-2 mb-4 pb-3 border-b border-[#2E3147]">
+            <Sparkles size={14} className="text-[#4F8EF7]" />
+            <span className="text-[11px] font-mono text-[#8B90A7] tracking-widest uppercase">
+              AI-Generated Reasoning · PharmaGuard Engine v1.0
+            </span>
           </div>
-          <div className="space-y-1">
-            {pgProfile.detected_variants.length > 0 ? pgProfile.detected_variants.map((v, vIdx) => (
-              <VariantRow key={vIdx} variant={v} viewMode={viewMode} />
-            )) : (
-              <p className="text-[11px] text-slate-400 italic">No specific target variations identified.</p>
-            )}
-          </div>
-        </div>
-      </AccordionSection>
 
-      {/* ACCORDION 2: CLINICAL RECOMMENDATION */}
-      <AccordionSection 
-        title="Clinical Management Strategy" 
-        isOpen={sections.recommendation} 
-        onToggle={() => toggleSection('recommendation')}
-      >
-        <div className="bg-white/60 dark:bg-black/20 rounded-xl p-4 border border-black/5">
-          <p className="text-slate-900 dark:text-zinc-100 font-bold leading-relaxed">{res.clinical_recommendation.summary}</p>
-        </div>
-      </AccordionSection>
-
-      {/* ACCORDION 3: AI REASONING */}
-      <AccordionSection 
-        title="Predictive Reasoning & Mechanisms" 
-        isOpen={sections.explanation} 
-        onToggle={() => toggleSection('explanation')}
-      >
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="space-y-4">
-            <div>
-              <p className="text-[10px] font-black uppercase opacity-60 mb-1">Functional Impact Summary</p>
-              <p className="text-slate-800 dark:text-zinc-200 text-sm leading-relaxed">{aiExp.summary}</p>
-            </div>
-            {aiExp.mechanism && (
-              <div className="bg-white/30 dark:bg-black/10 rounded-lg p-3 border border-black/5">
-                <p className="text-[10px] font-black uppercase opacity-60 mb-1">Molecular Pathway</p>
-                <p className="text-xs italic text-slate-700 dark:text-zinc-400 leading-relaxed">{aiExp.mechanism}</p>
-              </div>
-            )}
-          </div>
-          <div className="bg-white/40 dark:bg-black/20 rounded-xl p-4 border border-black/5 flex flex-col justify-between">
-            <div>
-              <p className="text-[10px] font-black uppercase opacity-60 mb-1">Clinical Caveats</p>
-              {viewMode === 'clinician' ? (
-                <p className="text-xs text-red-900/80 dark:text-red-400/80 leading-relaxed italic">{aiExp.clinical_caveats}</p>
-              ) : (
-                <p className="text-xs text-slate-500 italic">Clinical notes hidden in patient mode. Consult your healthcare provider for technical details.</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div className="space-y-4">
+              <p className="text-sm text-[#8B90A7] leading-relaxed">
+                {aiExp.summary.split(/\b(rs\d+)\b/g).map((part, i) => {
+                  if (part.match(/^rs\d+$/)) {
+                    return (
+                      <span 
+                        key={i} 
+                        className={cn(
+                          "font-mono text-[#4F8EF7] cursor-help border-b border-dotted border-[#4F8EF7]/40 transition-colors",
+                          highlightedRsid === part && "bg-[#4F8EF7]/20 rounded px-1"
+                        )}
+                        onMouseEnter={() => onHoverRsid(part)}
+                        onMouseLeave={() => onHoverRsid(null)}
+                      >
+                        {part}
+                      </span>
+                    );
+                  }
+                  return part;
+                })}
+              </p>
+              {aiExp.mechanism && (
+                <div className="bg-[#0F1117]/50 rounded-lg p-3 border border-[#2E3147]">
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-[#8B90A7] mb-1">Molecular Mechanism</p>
+                  <p className="text-[13px] italic text-[#8B90A7] leading-relaxed">{aiExp.mechanism}</p>
+                </div>
               )}
             </div>
-            <div className="mt-4 pt-4 border-t border-black/5 flex items-center justify-between">
-              <span className="text-[10px] font-bold uppercase opacity-40 font-mono">Model Score: {(risk.confidence_score * 100).toFixed(0)}%</span>
-              <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-tighter cursor-help hover:underline">Level 1A Evidence</span>
+
+            <div className="bg-[#222533]/50 rounded-xl p-4 border border-[#2E3147]">
+               <p className="text-[10px] font-bold uppercase tracking-widest text-[#8B90A7] mb-2">Clinical Caveats</p>
+               {viewMode === 'clinician' ? (
+                 <p className="text-[13px] text-[#EF4444]/80 italic leading-relaxed">{aiExp.clinical_caveats}</p>
+               ) : (
+                 <p className="text-[13px] text-[#8B90A7] italic">Detailed technical caveats are reserved for clinical review. Please consult your physician.</p>
+               )}
+               <div className="mt-6 pt-4 border-t border-[#2E3147] flex items-center justify-between">
+                 <a href="https://cpicpgx.org/guidelines/" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[10px] font-bold text-[#4F8EF7] hover:underline uppercase tracking-widest">
+                   <ExternalLink size={10} /> CPIC Guideline Level 1A
+                 </a>
+               </div>
             </div>
           </div>
         </div>
-        
-        {/* METABOLIC TIMELINE (TASK 4) */}
-        <MetabolicTimeline res={res} />
-      </AccordionSection>
+
+        {/* DETAILED VARIANTS ACCORDION */}
+        <div className="mt-8 border border-[#2E3147] rounded-xl overflow-hidden bg-[#0F1117]/30">
+          <Accordion title="Genomic Loci & Variant Evidence" icon={<Dna size={14} />}>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="text-[10px] text-[#8B90A7] uppercase tracking-widest">
+                    <th className="py-2 px-3">Locus (rsID)</th>
+                    <th className="py-2 px-3">Quality</th>
+                    <th className="py-2 px-3 text-right">Function</th>
+                  </tr>
+                </thead>
+                <tbody className="text-[13px] font-mono divide-y divide-[#2E3147]">
+                  {pgProfile.detected_variants.map((v, i) => (
+                    <tr 
+                      key={i} 
+                      className={cn(
+                        "transition-colors duration-200",
+                        highlightedRsid === v.rsid && "bg-[#4F8EF7]/10"
+                      )}
+                    >
+                      <td className="py-3 px-3">
+                        <div className="flex items-center gap-2">
+                          <span className={cn(
+                            "font-bold",
+                            v.is_causal ? "text-[#F59E0B]" : "text-[#F0F2F8]"
+                          )}>{v.rsid}</span>
+                          {v.is_causal && <Zap size={10} className="text-[#F59E0B] animate-pulse" />}
+                        </div>
+                      </td>
+                      <td className="py-3 px-3 text-[#8B90A7]">0.99</td>
+                      <td className="py-3 px-3 text-right">
+                        <span className={cn(
+                          "px-2 py-0.5 rounded text-[10px] uppercase font-bold",
+                          v.is_causal ? "bg-amber-900/40 text-amber-500" : "bg-[#222533] text-[#8B90A7]"
+                        )}>
+                          {v.is_causal ? "Loss of Function" : "Standard"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Accordion>
+          
+          <Accordion title="Decision Intelligence Flow" icon={<Activity size={14} />}>
+            <MetabolicTimeline res={res} />
+          </Accordion>
+        </div>
+      </div>
     </div>
   );
 };
 
-const ResultDashboard = React.memo(({ results, viewMode }: ResultDashboardProps) => {
+const ResultDashboard = ({ results, viewMode }: ResultDashboardProps) => {
+  const [activeDrugId, setActiveDrugId] = useState(results[0].drug);
+  const [highlightedRsid, setHighlightedRsid] = useState<string | null>(null);
+
+  const activeResult = useMemo(() => 
+    results.find(r => r.drug === activeDrugId) || results[0]
+  , [results, activeDrugId]);
+
+  const priorityActions = results.filter(r => r.risk_assessment.risk_label !== RiskLabel.SAFE).length;
+
   return (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white dark:bg-zinc-900 p-6 rounded-xl border border-slate-200 dark:border-zinc-800 shadow-sm">
-          <p className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">Global Precision</p>
-          <p className="text-3xl font-black text-slate-900 dark:text-zinc-100 font-mono">
-            {(results[0].quality_metrics.variant_quality_score * 100).toFixed(1)}%
-          </p>
-          <p className="text-slate-400 text-xs mt-1">Instrumental confidence avg</p>
-        </div>
-        <div className="bg-white dark:bg-zinc-900 p-6 rounded-xl border border-slate-200 dark:border-zinc-800 shadow-sm">
-          <p className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">Loci Identified</p>
-          <p className="text-3xl font-black text-slate-900 dark:text-zinc-100 font-mono">{results[0].quality_metrics.variant_count}</p>
-          <p className="text-slate-400 text-xs mt-1">Targeted pharmacogenomic sites</p>
-        </div>
-        <div className="bg-white dark:bg-zinc-900 p-6 rounded-xl border border-slate-200 dark:border-zinc-800 shadow-sm">
-          <p className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">Priority Actions</p>
-          <p className="text-3xl font-black text-red-600 font-mono">
-            {results.filter(r => r.risk_assessment.risk_label !== RiskLabel.SAFE).length}
-          </p>
-          <p className="text-slate-400 text-xs mt-1">Potential clinical contraindications</p>
-        </div>
-      </div>
+    <div className="flex flex-col lg:flex-row gap-0 lg:h-[calc(100vh-140px)] border border-[#2E3147] rounded-2xl overflow-hidden bg-[#0F1117] mb-20">
+      {/* LEFT RAIL NAVIGATION */}
+      <aside className="w-full lg:w-[320px] bg-[#1A1D27] border-b lg:border-b-0 lg:border-r border-[#2E3147] overflow-y-auto flex flex-col">
+        <div className="p-6 border-b border-[#2E3147]">
+          <div className="mb-6 p-4 rounded-xl bg-[#222533] border border-[#2E3147]">
+            <p className="text-[10px] text-[#8B90A7] font-bold uppercase tracking-[0.2em] mb-1">Genomic Match Score</p>
+            <p className="text-4xl font-black text-[#F0F2F8] font-mono">
+              {(results[0].quality_metrics.variant_quality_score * 100).toFixed(1)}%
+            </p>
+            <div className="flex items-center gap-2 mt-2">
+              <span className="w-2 h-2 rounded-full bg-[#22C55E]" />
+              <p className="text-[10px] font-bold text-[#8B90A7]">{results[0].quality_metrics.variant_count} target loci mapped</p>
+            </div>
+          </div>
 
-      {/* SUMMARY TABLE (TASK 1) */}
-      <h2 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">Executive Summary</h2>
-      <RiskSummaryTable results={results} />
+          <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-widest text-[#8B90A7]">
+            <span>Drug Insights Panel</span>
+            {priorityActions > 0 && (
+              <span className="bg-[#EF4444] text-white px-2 py-0.5 rounded-full">{priorityActions} Priority</span>
+            )}
+          </div>
+        </div>
 
-      <h2 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">Patient Detail Cards</h2>
-      <div className="grid grid-cols-1 gap-6">
-        {results.map((res, idx) => (
-          <DrugResultCard key={idx} res={res} viewMode={viewMode} />
-        ))}
-      </div>
+        <nav className="flex-1 p-3 space-y-1">
+          {results.map((res) => (
+            <button
+              key={res.drug}
+              onClick={() => setActiveDrugId(res.drug)}
+              className={cn(
+                "w-full flex items-center justify-between px-4 py-3.5 rounded-xl transition-all group",
+                activeDrugId === res.drug 
+                  ? "bg-[#4F8EF7]/10 text-[#4F8EF7] border border-[#4F8EF7]/30 shadow-[inset_0_0_10px_rgba(79,142,247,0.05)]" 
+                  : "text-[#8B90A7] hover:bg-[#222533] hover:text-[#F0F2F8]"
+              )}
+            >
+              <div className="flex flex-col items-start text-left">
+                <span className="text-[13px] font-black uppercase tracking-tighter">{res.drug}</span>
+                <span className="text-[10px] font-mono opacity-60 group-hover:opacity-100">{res.pharmacogenomic_profile.primary_gene}</span>
+              </div>
+              <RiskBadgeIcon level={res.risk_assessment.risk_label} size={14} />
+            </button>
+          ))}
+        </nav>
+      </aside>
+
+      {/* DETAIL PANEL */}
+      <main className="flex-1 overflow-y-auto bg-[#0F1117] p-6 lg:p-10">
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={activeDrugId + viewMode}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.3, ease: "easeOut" }}
+          >
+            <DrugResultCard 
+              res={activeResult} 
+              viewMode={viewMode}
+              highlightedRsid={highlightedRsid}
+              onHoverRsid={setHighlightedRsid}
+            />
+          </motion.div>
+        </AnimatePresence>
+      </main>
     </div>
   );
-});
+};
 
 export default ResultDashboard;

@@ -1,5 +1,6 @@
-
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
+import { ShieldAlert, Info, Microscope, Search, Check, AlertCircle } from 'lucide-react';
 import Layout from './components/Layout';
 import VCFUpload from './components/VCFUpload';
 import DrugSelector from './components/DrugSelector';
@@ -9,7 +10,14 @@ import { parseVCF } from './services/vcfParser';
 import { getPhenotypeForGene, getDiplotypeForGene } from './services/phenotypeEngine';
 import { getRecommendation } from './services/ruleEngine';
 import { generateExplanations, buildFallbackExplanation } from './services/geminiService';
-import { DRUG_GENE_MAP } from './constants';
+import { DRUG_GENE_MAP, SUPPORTED_DRUGS } from './constants';
+import { clsx, type ClassValue } from 'clsx';
+import { twMerge } from 'tailwind-merge';
+
+// Helper utility for merging tailwind classes safely
+function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
 
 type AnalysisPhase = 'idle' | 'parsing' | 'mapping' | 'reasoning' | 'complete' | 'error';
 type ViewMode = 'clinician' | 'patient';
@@ -17,93 +25,107 @@ type ViewMode = 'clinician' | 'patient';
 const PrivacyModal: React.FC<{ isOpen: boolean; onClose: () => void }> = ({ isOpen, onClose }) => {
   if (!isOpen) return null;
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={onClose}>
-      <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-3xl p-8 max-w-md w-full shadow-2xl animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-10 h-10 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-full flex items-center justify-center">
-             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center p-4" onClick={onClose}>
+      <motion.div 
+        initial={{ scale: 0.9, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.9, opacity: 0 }}
+        className="bg-[#1A1D27] border border-[#2E3147] rounded-3xl p-10 max-w-lg w-full shadow-[0_0_50px_rgba(0,0,0,0.5)]" 
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center gap-4 mb-8">
+          <div className="w-12 h-12 bg-[#4F8EF7]/10 text-[#4F8EF7] rounded-2xl flex items-center justify-center border border-[#4F8EF7]/20">
+             <ShieldAlert size={24} />
           </div>
-          <h3 className="text-xl font-black text-slate-900 dark:text-white">Privacy Transparency</h3>
+          <div>
+            <h3 className="text-xl font-black text-[#F0F2F8] tracking-tight uppercase">Privacy Architecture</h3>
+            <p className="text-[10px] text-[#8B90A7] font-mono tracking-widest mt-0.5 uppercase">Security & Sovereignty Protocol</p>
+          </div>
         </div>
         
-        <div className="space-y-4 mb-8">
-          <div className="flex items-start gap-3 text-sm text-slate-600 dark:text-zinc-300">
-            <span className="text-emerald-500 mt-1 font-bold">✓</span>
-            <p>VCF file is processed locally in-browser; genomic sequences never leave your device.</p>
-          </div>
-          <div className="flex items-start gap-3 text-sm text-slate-600 dark:text-zinc-300">
-            <span className="text-emerald-500 mt-1 font-bold">✓</span>
-            <p>Only calculated phenotype summaries are sent to the AI model for interpretation.</p>
-          </div>
-          <div className="flex items-start gap-3 text-sm text-slate-600 dark:text-zinc-300">
-            <span className="text-emerald-500 mt-1 font-bold">✓</span>
-            <p>Patient identity is anonymized as <strong>PAT_RIFT_...</strong> across all external calls.</p>
-          </div>
-          <div className="flex items-start gap-3 text-sm text-slate-600 dark:text-zinc-300">
-            <span className="text-emerald-500 mt-1 font-bold">✓</span>
-            <p>No raw genomic data is stored, cached, or logged by the LLM service.</p>
-          </div>
+        <div className="space-y-6 mb-10">
+          {[
+            { label: "Local-First Parsing", desc: "Genomic sequence data is processed locally in-browser. Raw DNA strings never traverse the network." },
+            { label: "Summarized Inference", desc: "Only calculated phenotypes are transmitted for interpretation. No raw variants are shared with external models." },
+            { label: "Identity Obfuscation", desc: "Internal IDs (e.g., PAT_RIFT_...) ensure no personally identifiable information (PII) is associated with analysis calls." }
+          ].map((item, i) => (
+            <div key={i} className="flex items-start gap-4">
+              <div className="w-6 h-6 rounded-full bg-[#22C55E]/10 border border-[#22C55E]/20 flex items-center justify-center shrink-0 mt-0.5">
+                <Check size={12} className="text-[#22C55E]" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-[#F0F2F8]">{item.label}</p>
+                <p className="text-[13px] text-[#8B90A7] leading-relaxed mt-1">{item.desc}</p>
+              </div>
+            </div>
+          ))}
         </div>
-
-        <p className="text-[10px] text-slate-400 dark:text-zinc-500 text-center mb-6 px-4">
-          For decision-support use only. This tool is not a substitute for clinical judgment or diagnostic genetic counseling.
-        </p>
 
         <button 
           onClick={onClose}
-          className="w-full py-3 bg-slate-900 dark:bg-blue-600 text-white rounded-xl font-bold hover:opacity-90 transition-all active:scale-95"
+          className="w-full py-4 bg-[#4F8EF7] hover:bg-[#4F8EF7]/90 text-white rounded-xl font-black uppercase tracking-widest transition-all active:scale-[0.98]"
         >
-          Acknowledge & Close
+          Acknowledge Protocol
         </button>
-      </div>
+      </motion.div>
     </div>
   );
 };
 
 const ProcessingHUD: React.FC<{ phase: AnalysisPhase }> = ({ phase }) => {
   const steps = [
-    { id: 'parsing', label: 'VCF Parsing' },
-    { id: 'mapping', label: 'Phenotype Mapping' },
-    { id: 'reasoning', label: 'AI Reasoning' },
+    { id: 'parsing', label: 'VCF Normalization' },
+    { id: 'mapping', label: 'Phenotype Alignment' },
+    { id: 'reasoning', label: 'AI Synthesis' },
   ];
 
   const currentIdx = steps.findIndex(s => s.id === phase);
 
   return (
-    <div className="flex flex-col items-center gap-6 p-10 bg-slate-900 rounded-3xl shadow-2xl border border-slate-700 animate-in zoom-in duration-300">
-      <div className="flex items-center gap-2 text-slate-400 font-bold uppercase tracking-widest text-xs">
-        <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>
-        Analysis Pipeline Active
+    <motion.div 
+      initial={{ opacity: 0, scale: 0.95 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 1.05 }}
+      className="flex flex-col items-center gap-10 p-16 bg-[#1A1D27] rounded-[40px] border border-[#2E3147] shadow-2xl"
+    >
+      <div className="flex flex-col items-center gap-3">
+        <div className="w-16 h-16 rounded-3xl bg-[#4F8EF7]/10 border border-[#4F8EF7]/20 flex items-center justify-center text-[#4F8EF7] mb-2">
+          <Microscope size={32} className="animate-pulse" />
+        </div>
+        <h2 className="text-sm font-black text-[#8B90A7] uppercase tracking-[0.3em]">Analysis Pipeline Active</h2>
       </div>
-      <div className="flex items-center justify-center gap-4 w-full">
+
+      <div className="flex items-center justify-center gap-6 w-full max-w-md">
         {steps.map((step, idx) => {
           const isComplete = idx < currentIdx || phase === 'complete';
           const isCurrent = step.id === phase;
 
           return (
             <React.Fragment key={step.id}>
-              <div className={`flex flex-col items-center gap-2 transition-all duration-500 ${isCurrent ? 'scale-110' : 'scale-100'}`}>
-                <div className={`w-12 h-12 rounded-full flex items-center justify-center font-black transition-all ${
-                  isComplete ? 'bg-emerald-500 text-white' : 
-                  isCurrent ? 'bg-blue-600 animate-pulse text-white shadow-lg shadow-blue-500/50' : 
-                  'bg-slate-800 text-slate-500'
-                }`}>
-                  {isComplete ? (
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>
-                  ) : idx + 1}
+              <div className="flex flex-col items-center gap-3">
+                <div className={cn(
+                  "w-12 h-12 rounded-2xl flex items-center justify-center transition-all duration-500",
+                  isComplete ? "bg-[#22C55E] text-white" : 
+                  isCurrent ? "bg-[#4F8EF7] text-white shadow-[0_0_20px_rgba(79,142,247,0.4)]" : 
+                  "bg-[#222533] text-[#8B90A7] border border-[#2E3147]"
+                )}>
+                  {isComplete ? <Check size={20} strokeWidth={3} /> : <span className="text-sm font-black">{idx + 1}</span>}
                 </div>
-                <span className={`text-[10px] font-black uppercase tracking-wider ${isCurrent ? 'text-blue-400' : isComplete ? 'text-emerald-400' : 'text-slate-600'}`}>
+                <span className={cn(
+                  "text-[9px] font-black uppercase tracking-widest text-center w-24 leading-tight",
+                  isCurrent ? "text-[#4F8EF7]" : isComplete ? "text-[#22C55E]" : "text-[#8B90A7]"
+                )}>
                   {step.label}
                 </span>
               </div>
               {idx < steps.length - 1 && (
-                <div className={`h-0.5 w-12 rounded-full transition-all duration-700 ${idx < currentIdx ? 'bg-emerald-500' : 'bg-slate-800'}`}></div>
+                <div className={cn("h-[2px] w-8 rounded-full transition-all duration-700", idx < currentIdx ? "bg-[#22C55E]" : "bg-[#2E3147]")}></div>
               )}
             </React.Fragment>
           );
         })}
       </div>
-    </div>
+    </motion.div>
   );
 };
 
@@ -114,81 +136,46 @@ const ActionHeader: React.FC<{
   viewMode: ViewMode;
   setViewMode: (m: ViewMode) => void;
 }> = ({ results, onReset, onShowPrivacy, viewMode, setViewMode }) => {
-  const [copySuccess, setCopySuccess] = useState(false);
-
-  const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(JSON.stringify(results, null, 2));
-    setCopySuccess(true);
-    setTimeout(() => setCopySuccess(false), 2000);
-  }, [results]);
-
-  const handleDownload = useCallback(() => {
-    const blob = new Blob([JSON.stringify(results, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `PharmaGuard_${results[0].patient_id}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [results]);
-
   return (
-    <div className="flex flex-col gap-6 pb-6 border-b border-slate-200 mb-8">
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+    <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 pb-10 border-b border-[#2E3147] mb-10">
+      <div className="flex flex-col gap-4">
         <div>
-          <h2 className="text-4xl font-black text-slate-900 tracking-tight">Clinical Report</h2>
-          <div className="flex items-center gap-3 mt-2">
-            <span className="px-2 py-1 bg-slate-100 text-slate-500 rounded font-mono text-xs font-bold tracking-widest">#{results[0].patient_id}</span>
-            <span className="text-slate-400 text-sm">{new Date(results[0].timestamp).toLocaleDateString()}</span>
+          <h2 className="text-[32px] font-black text-[#F0F2F8] tracking-tight leading-none uppercase">Clinical Diagnostic Report</h2>
+          <div className="flex items-center gap-4 mt-3">
+            <span className="font-mono text-[11px] bg-[#222533] text-[#8B90A7] px-3 py-1 rounded border border-[#2E3147] tracking-widest">
+              ID: {results[0].patient_id}
+            </span>
+            <span className="text-[#8B90A7] text-xs font-bold uppercase tracking-widest">{new Date(results[0].timestamp).toLocaleDateString(undefined, { dateStyle: 'long' })}</span>
           </div>
-        </div>
-        <div className="flex gap-2 bg-slate-100 p-1 rounded-xl self-start">
-          <button 
-            onClick={() => setViewMode('clinician')}
-            className={`px-4 py-1.5 text-xs font-black uppercase rounded-lg transition-all ${viewMode === 'clinician' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
-          >
-            🩺 Clinician
-          </button>
-          <button 
-            onClick={() => setViewMode('patient')}
-            className={`px-4 py-1.5 text-xs font-black uppercase rounded-lg transition-all ${viewMode === 'patient' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
-          >
-            👤 Patient
-          </button>
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-3">
+      <div className="flex items-center gap-3">
+        <div className="flex bg-[#1A1D27] p-1 rounded-xl border border-[#2E3147]">
+          <button 
+            onClick={() => setViewMode('clinician')}
+            className={cn(
+              "px-5 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all",
+              viewMode === 'clinician' ? "bg-[#4F8EF7] text-white shadow-lg shadow-[#4F8EF7]/20" : "text-[#8B90A7] hover:text-[#F0F2F8]"
+            )}
+          >
+            Clinician
+          </button>
+          <button 
+            onClick={() => setViewMode('patient')}
+            className={cn(
+              "px-5 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all",
+              viewMode === 'patient' ? "bg-[#4F8EF7] text-white shadow-lg shadow-[#4F8EF7]/20" : "text-[#8B90A7] hover:text-[#F0F2F8]"
+            )}
+          >
+            Patient
+          </button>
+        </div>
         <button 
-          onClick={onShowPrivacy}
-          className="px-5 py-2.5 rounded-xl font-bold text-sm bg-emerald-50 border-2 border-emerald-100 text-emerald-700 hover:bg-emerald-100 transition-all flex items-center gap-2"
+          onClick={onReset}
+          className="px-5 py-2 text-[10px] font-black uppercase tracking-widest text-[#EF4444] hover:bg-red-500/10 rounded-xl transition-all"
         >
-          🛡 Privacy
-        </button>
-        <button 
-          onClick={handleCopy}
-          className={`px-5 py-2.5 rounded-xl font-bold text-sm transition-all flex items-center gap-2 border-2 ${
-            copySuccess ? 'bg-emerald-50 border-emerald-200 text-emerald-600' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
-          }`}
-        >
-          {copySuccess ? (
-            <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg> Copied</>
-          ) : (
-            <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" /></svg> Copy JSON</>
-          )}
-        </button>
-        <button 
-          onClick={handleDownload}
-          className="bg-slate-900 text-white px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-slate-800 transition-all shadow-lg shadow-slate-200 flex items-center gap-2"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-          Download .json
-        </button>
-        <button 
-          onClick={onReset} 
-          className="px-5 py-2.5 text-sm font-bold text-blue-600 hover:bg-blue-50 transition-all rounded-xl ml-auto"
-        >
-          New Analysis
+          Reset Analysis
         </button>
       </div>
     </div>
@@ -203,10 +190,16 @@ const App: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('clinician');
+  const [drugSearch, setDrugSearch] = useState('');
+  const shouldReduceMotion = useReducedMotion();
+
+  const filteredDrugs = useMemo(() => 
+    SUPPORTED_DRUGS.filter(d => d.toLowerCase().includes(drugSearch.toLowerCase()))
+  , [drugSearch]);
 
   const handleAnalyze = async () => {
     if (!file || selectedDrugs.length === 0) {
-      setError("Please ensure a VCF file is uploaded and drugs are selected.");
+      setError("Analysis protocol requires both a VCF sequence and selected target drugs.");
       return;
     }
 
@@ -256,8 +249,8 @@ const App: React.FC = () => {
             summary: recData.recommendation_text,
           },
           llm_generated_explanation: { 
-            summary: "Generating clinical reasoning via Gemini AI...",
-            clinical_caveats: "Standard monitoring required."
+            summary: "Generating structured reasoning via Gemini Flash-3...",
+            clinical_caveats: "Pending validation."
           },
           quality_metrics: metrics
         };
@@ -280,7 +273,7 @@ const App: React.FC = () => {
       setPhase('complete');
     } catch (err: any) {
       console.error(err);
-      setError("Pipeline Error: Failed to analyze genomic sequence. Please check connectivity.");
+      setError("Sequence mapping failed. Ensure VCF headers follow v4.2 standards.");
       setPhase('error');
     }
   };
@@ -296,52 +289,155 @@ const App: React.FC = () => {
 
   return (
     <Layout>
-      <PrivacyModal isOpen={showPrivacy} onClose={() => setShowPrivacy(false)} />
+      <AnimatePresence>
+        {showPrivacy && <PrivacyModal isOpen={showPrivacy} onClose={() => setShowPrivacy(false)} />}
+      </AnimatePresence>
       
-      <div className="space-y-10 py-10 max-w-5xl mx-auto">
-        {!results ? (
-          <div className="space-y-8">
-            <div className="text-center space-y-4">
-              <h1 className="text-5xl font-black text-slate-900 tracking-tight">Precision Guard</h1>
-              <p className="text-slate-500 text-lg max-w-2xl mx-auto leading-relaxed">
-                Analyze VCF data against CPIC guidelines with explainable AI. 
-                Secure, deterministic, and medically grounded.
-              </p>
-            </div>
-            {error && (
-              <div className="p-4 bg-red-50 text-red-700 rounded-2xl text-sm font-bold border border-red-100 flex items-center gap-3">
-                <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center text-red-600">!</div>
-                {error}
+      <div className="max-w-6xl mx-auto py-12 px-6 pb-24">
+        <AnimatePresence mode="wait">
+          {!results ? (
+            <motion.div 
+              key="onboarding"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.4, ease: [0.4, 0, 0.2, 1] }}
+              className="max-w-3xl mx-auto space-y-12"
+            >
+              <div className="text-center space-y-4">
+                <h1 className="text-5xl font-black text-[#F0F2F8] tracking-tighter uppercase leading-none">
+                  Precision <span className="text-[#4F8EF7]">Guard</span>
+                </h1>
+                <p className="text-[#8B90A7] text-lg max-w-xl mx-auto leading-relaxed">
+                  Advanced pharmacogenomic risk synthesis. Transform raw sequence data into actionable clinical insights.
+                </p>
               </div>
-            )}
-            {isAnalyzing ? (
-              <ProcessingHUD phase={phase} />
-            ) : (
-              <>
-                <VCFUpload onFileSelect={setFile} onError={setError} />
-                <DrugSelector selectedDrugs={selectedDrugs} onChange={setSelectedDrugs} />
-                <button
-                  onClick={handleAnalyze}
-                  disabled={!file || selectedDrugs.length === 0}
-                  className={`w-full py-5 rounded-2xl font-black text-xl shadow-2xl transition-all transform active:scale-95 bg-blue-600 text-white hover:bg-blue-700 shadow-blue-200 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed`}
-                >
-                  Run Clinical Analysis
-                </button>
-              </>
-            )}
-          </div>
-        ) : (
-          <div className="space-y-4 pb-20">
-            <ActionHeader 
-              results={results} 
-              onReset={handleReset} 
-              onShowPrivacy={() => setShowPrivacy(true)}
-              viewMode={viewMode}
-              setViewMode={setViewMode}
-            />
-            <ResultDashboard results={results} viewMode={viewMode} />
-          </div>
-        )}
+
+              <AnimatePresence>
+                {error && (
+                  <motion.div 
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="p-5 bg-red-950/30 border border-red-800 text-red-400 rounded-2xl text-sm font-bold flex items-center gap-4 overflow-hidden"
+                  >
+                    <AlertCircle size={20} />
+                    {error}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              <AnimatePresence mode="wait">
+                {isAnalyzing ? (
+                  <ProcessingHUD phase={phase} />
+                ) : (
+                  <div className="space-y-8">
+                    <section>
+                      <div className="flex items-center gap-3 mb-4">
+                        <div className="w-8 h-8 rounded-lg bg-[#222533] border border-[#2E3147] flex items-center justify-center text-[#4F8EF7]">
+                          <Search size={14} />
+                        </div>
+                        <h3 className="text-sm font-bold uppercase tracking-widest text-[#8B90A7]">Sequence Input</h3>
+                      </div>
+                      <VCFUpload onFileSelect={setFile} onError={setError} />
+                    </section>
+
+                    <section>
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-lg bg-[#222533] border border-[#2E3147] flex items-center justify-center text-[#4F8EF7]">
+                            <Microscope size={14} />
+                          </div>
+                          <h3 className="text-sm font-bold uppercase tracking-widest text-[#8B90A7]">Target Drug Panel</h3>
+                        </div>
+                        <div className="flex items-center gap-2 bg-[#1A1D27] px-3 py-1.5 rounded-lg border border-[#2E3147]">
+                          <Search size={12} className="text-[#8B90A7]" />
+                          <input 
+                            type="text" 
+                            placeholder="Search..."
+                            className="bg-transparent text-[10px] font-bold outline-none text-[#F0F2F8] uppercase tracking-wider w-24"
+                            value={drugSearch}
+                            onChange={(e) => setDrugSearch(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                        {filteredDrugs.map(drug => {
+                          const isSelected = selectedDrugs.includes(drug);
+                          return (
+                            <motion.button
+                              whileTap={shouldReduceMotion ? {} : { scale: 0.98 }}
+                              key={drug}
+                              onClick={() => {
+                                setSelectedDrugs(prev => prev.includes(drug) ? prev.filter(d => d !== drug) : [...prev, drug]);
+                              }}
+                              className={cn(
+                                "flex items-center justify-between px-5 py-4 rounded-2xl border-2 transition-all font-black text-[11px] uppercase tracking-wider group",
+                                isSelected 
+                                  ? "bg-[#4F8EF7]/10 border-[#4F8EF7] text-[#4F8EF7]" 
+                                  : "bg-[#1A1D27] border-[#2E3147] text-[#8B90A7] hover:border-[#F0F2F8] hover:text-[#F0F2F8]"
+                              )}
+                            >
+                              {drug}
+                              {isSelected ? <Check size={14} /> : <div className="w-3.5 h-3.5 rounded-full border border-[#2E3147] group-hover:border-[#F0F2F8]" />}
+                            </motion.button>
+                          );
+                        })}
+                      </div>
+                    </section>
+
+                    <div className="relative group">
+                      <motion.button
+                        whileHover={shouldReduceMotion ? {} : { scale: 1.01 }}
+                        whileTap={shouldReduceMotion ? {} : { scale: 0.99 }}
+                        onClick={handleAnalyze}
+                        disabled={!file || selectedDrugs.length === 0}
+                        className={cn(
+                          "w-full py-6 rounded-3xl font-black text-lg uppercase tracking-[0.2em] shadow-2xl transition-all transform",
+                          "bg-[#4F8EF7] text-white hover:bg-[#4F8EF7]/90 shadow-[#4F8EF7]/20",
+                          "disabled:bg-[#222533] disabled:text-[#8B90A7] disabled:cursor-not-allowed disabled:border-[#2E3147]"
+                        )}
+                      >
+                        Initialize Analysis
+                      </motion.button>
+                      {!file || selectedDrugs.length === 0 ? (
+                        <div className="absolute top-full left-1/2 -translate-x-1/2 mt-4 px-4 py-2 bg-[#222533] border border-[#2E3147] text-[10px] text-[#8B90A7] font-bold uppercase tracking-widest rounded-lg opacity-0 group-hover:opacity-100 transition-opacity">
+                           Sequence Upload & Drug Selection Required
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <button 
+                      onClick={() => setShowPrivacy(true)}
+                      className="w-full flex items-center justify-center gap-2 text-[10px] font-bold text-[#8B90A7] hover:text-[#F0F2F8] transition-colors uppercase tracking-[0.2em]"
+                    >
+                      <ShieldAlert size={12} /> Privacy & Compliance Protocols
+                    </button>
+                  </div>
+                )}
+              </AnimatePresence>
+            </motion.div>
+          ) : (
+            <motion.div 
+              key="dashboard"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.4, ease: [0.4, 0, 0.2, 1] }}
+              className="space-y-4"
+            >
+              <ActionHeader 
+                results={results} 
+                onReset={handleReset} 
+                onShowPrivacy={() => setShowPrivacy(true)}
+                viewMode={viewMode}
+                setViewMode={setViewMode}
+              />
+              <ResultDashboard results={results} viewMode={viewMode} />
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </Layout>
   );
