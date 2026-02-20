@@ -81,7 +81,7 @@ export const generateExplanations = async (
 ): Promise<Record<string, LLMExplanation>> => {
   // Switched to 'gemini-3-flash-preview' to mitigate 429 Resource Exhausted / Quota errors
   // while maintaining high-quality clinical explanations.
-  const model = 'gemini-2.0-flash';
+  const model = 'gemini-3-flash-preview';
   const explanationMap: Record<string, LLMExplanation> = {};
 
   for (const res of results) {
@@ -97,14 +97,11 @@ export const generateExplanations = async (
     let attempts = 0;
     const maxAttempts = 3;
     let success = false;
-    const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
-
 
     while (attempts < maxAttempts && !success) {
       try {
         // Initialize Gemini client using exclusively process.env.API_KEY as per guidelines.
-    const ai = new GoogleGenAI({ apiKey });
- });
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
         
         const response = await ai.models.generateContent({
           model,
