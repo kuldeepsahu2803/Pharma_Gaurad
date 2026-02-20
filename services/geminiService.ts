@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { PharmaGuardResult, LLMExplanation, Phenotype, RiskLabel } from "../types";
 
@@ -80,8 +79,9 @@ const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
 export const generateExplanations = async (
   results: PharmaGuardResult[]
 ): Promise<Record<string, LLMExplanation>> => {
-  // Model 'gemini-3-pro-preview' is selected for complex genomic analysis and reasoning tasks.
-  const model = 'gemini-3-pro-preview';
+  // Switched to 'gemini-3-flash-preview' to mitigate 429 Resource Exhausted / Quota errors
+  // while maintaining high-quality clinical explanations.
+  const model = 'gemini-3-flash-preview';
   const explanationMap: Record<string, LLMExplanation> = {};
 
   for (const res of results) {
@@ -100,8 +100,8 @@ export const generateExplanations = async (
 
     while (attempts < maxAttempts && !success) {
       try {
-        // Initialize Gemini client using process.env.API_KEY as per the guidelines.
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+        // Initialize Gemini client using exclusively process.env.API_KEY as per guidelines.
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
         
         const response = await ai.models.generateContent({
           model,
@@ -128,26 +128,33 @@ export const generateExplanations = async (
           },
         });
 
-        // Use response.text getter directly as per current SDK patterns.
         const outputText = response.text;
         if (outputText) {
           const parsed = JSON.parse(outputText.trim());
           explanationMap[res.drug] = parsed.llm_generated_explanation;
           success = true;
-          await delay(1500); 
+          // Rate limit protection
+          await delay(1000); 
         } else {
           throw new Error("Empty response from Gemini");
         }
       } catch (error: any) {
         attempts++;
-        const isTransient = error.message?.includes("503") || error.message?.includes("500") || error.message?.includes("overloaded") || error.message?.includes("UNAVAILABLE");
+        // Enhanced transient error detection including 429
+        const isTransient = 
+          error.message?.includes("429") || 
+          error.message?.includes("503") || 
+          error.message?.includes("500") || 
+          error.message?.includes("overloaded") || 
+          error.message?.includes("UNAVAILABLE") ||
+          error.message?.includes("RESOURCE_EXHAUSTED");
         
         if (isTransient && attempts < maxAttempts) {
-          const backoff = attempts * 3000; 
-          console.warn(`Gemini transient error detected for ${res.drug}. Retrying in ${backoff}ms... (Attempt ${attempts}/${maxAttempts})`);
+          const backoff = attempts * 5000; // Increased backoff for quota recovery
+          console.warn(`Gemini quota or transient error detected for ${res.drug}. Retrying in ${backoff}ms... (Attempt ${attempts}/${maxAttempts})`);
           await delay(backoff);
         } else {
-          console.warn(`Gemini call for ${res.drug} failed. Error: ${error.message || 'Unknown error'}`);
+          console.warn(`Gemini call for ${res.drug} failed permanently or max retries reached. Error: ${error.message || 'Unknown error'}`);
           explanationMap[res.drug] = buildFallbackExplanation(
             res.drug, 
             res.pharmacogenomic_profile.primary_gene, 
