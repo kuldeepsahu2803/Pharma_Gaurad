@@ -101,7 +101,8 @@ export const generateExplanations = async (
     while (attempts < maxAttempts && !success) {
       try {
         // Initialize Gemini client using exclusively process.env.API_KEY as per guidelines.
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        const ai = new GoogleGenAI({ apiKey: process.import.meta.env.VITE_GEMINI_API_KEY
+ });
         
         const response = await ai.models.generateContent({
           model,
